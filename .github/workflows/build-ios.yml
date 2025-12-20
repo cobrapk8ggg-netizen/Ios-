@@ -34,26 +34,36 @@ jobs:
         run: |
           cd web/ios
           
-          # تعطيل التوقيع في ملف المشروع الرئيسي
+          # 1. تعطيل التوقيع في ملف المشروع الرئيسي
           sed -i '' 's/CODE_SIGNING_ALLOWED = YES/CODE_SIGNING_ALLOWED = NO/g' ZEUSBrowser.xcodeproj/project.pbxproj
           sed -i '' 's/CODE_SIGNING_REQUIRED = YES/CODE_SIGNING_REQUIRED = NO/g' ZEUSBrowser.xcodeproj/project.pbxproj
           
-          # تعديل الـ Podfile بذكاء: البحث عن end الأخيرة وإضافة التعليمات قبلها لتجنب تكرار post_install
-          # هذا يضمن دمج تعليماتنا مع تعليمات Expo الأصلية
-          sed -i '' '$d' Podfile
-          echo "    installer.pods_project.targets.each do |target|
-              target.build_configurations.each do |config|
-                config.build_settings['GCC_OPTIMIZATION_LEVEL'] = '0'
-                config.build_settings['SWIFT_OPTIMIZATION_LEVEL'] = '-Onone'
-                config.build_settings['CODE_SIGNING_ALLOWED'] = 'NO'
-                config.build_settings['CODE_SIGNING_REQUIRED'] = 'NO'
-              end
-            end
-          end" >> Podfile
+          # 2. تعديل الـ Podfile بطريقة آمنة وشاملة (Global Replacement)
+          # سنقوم بحقن إعداداتنا في بداية ملف الـ Podfile لضمان تطبيقها على كل الأهداف (Targets)
+          echo "
+          install! 'cocoapods', :deterministic_uuids => false
+
+          def update_config(config)
+              config.build_settings['GCC_OPTIMIZATION_LEVEL'] = '0'
+              config.build_settings['SWIFT_OPTIMIZATION_LEVEL'] = '-Onone'
+              config.build_settings['CODE_SIGNING_ALLOWED'] = 'NO'
+              config.build_settings['CODE_SIGNING_REQUIRED'] = 'NO'
+          end
+          " > Podfile.tmp
+          cat Podfile >> Podfile.tmp
+          mv Podfile.tmp Podfile
+
+          # إضافة أمر صريح داخل الـ post_install الأصلي لـ Expo باستخدام الاستبدال النصي
+          sed -i '' '/target.build_configurations.each do |config|/a \
+                config.build_settings["GCC_OPTIMIZATION_LEVEL"] = "0" \
+                config.build_settings["SWIFT_OPTIMIZATION_LEVEL"] = "-Onone" \
+                config.build_settings["CODE_SIGNING_ALLOWED"] = "NO" \
+                config.build_settings["CODE_SIGNING_REQUIRED"] = "NO" ' Podfile
           
-          # إعادة تثبيت المكتبات مع الإعدادات الجديدة
+          # 3. تحديث المكتبات
           pod install
 
+          # 4. بناء التطبيق
           xcodebuild build \
             -workspace ZEUSBrowser.xcworkspace \
             -scheme ZEUSBrowser \
