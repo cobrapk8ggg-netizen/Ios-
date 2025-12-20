@@ -1,4 +1,4 @@
-name: Build Unsigned iOS IPA (Expo)
+name: Build Unsigned iOS IPA (Expo SDK 54)
 
 on:
   push:
@@ -18,7 +18,7 @@ jobs:
       - name: 🛠️ Setup Node
         uses: actions/setup-node@v4
         with:
-          node-version: 18
+          node-version: 22 # تم اختيار أحدث إصدار مستقر ليتناسب مع React Native 0.81
 
       - name: 📦 Install dependencies
         run: |
@@ -34,36 +34,40 @@ jobs:
         run: |
           cd web/ios
           
-          # 1. تعطيل التوقيع في ملف المشروع الرئيسي
+          # 1. تعطيل التوقيع في ملف المشروع الرئيسي لـ Xcode
           sed -i '' 's/CODE_SIGNING_ALLOWED = YES/CODE_SIGNING_ALLOWED = NO/g' ZEUSBrowser.xcodeproj/project.pbxproj
           sed -i '' 's/CODE_SIGNING_REQUIRED = YES/CODE_SIGNING_REQUIRED = NO/g' ZEUSBrowser.xcodeproj/project.pbxproj
           
-          # 2. تعديل الـ Podfile بطريقة آمنة وشاملة (Global Replacement)
-          # سنقوم بحقن إعداداتنا في بداية ملف الـ Podfile لضمان تطبيقها على كل الأهداف (Targets)
-          echo "
-          install! 'cocoapods', :deterministic_uuids => false
-
-          def update_config(config)
-              config.build_settings['GCC_OPTIMIZATION_LEVEL'] = '0'
-              config.build_settings['SWIFT_OPTIMIZATION_LEVEL'] = '-Onone'
-              config.build_settings['CODE_SIGNING_ALLOWED'] = 'NO'
-              config.build_settings['CODE_SIGNING_REQUIRED'] = 'NO'
-          end
-          " > Podfile.tmp
-          cat Podfile >> Podfile.tmp
-          mv Podfile.tmp Podfile
-
-          # إضافة أمر صريح داخل الـ post_install الأصلي لـ Expo باستخدام الاستبدال النصي
-          sed -i '' '/target.build_configurations.each do |config|/a \
-                config.build_settings["GCC_OPTIMIZATION_LEVEL"] = "0" \
-                config.build_settings["SWIFT_OPTIMIZATION_LEVEL"] = "-Onone" \
-                config.build_settings["CODE_SIGNING_ALLOWED"] = "NO" \
-                config.build_settings["CODE_SIGNING_REQUIRED"] = "NO" ' Podfile
+          # 2. تعديل الـ Podfile برمجياً ليتوافق مع SDK 54
+          # سنقوم بحذف أي محاولة لفرض التوقيع ونعطل الـ Optimization للمكتبات الحديثة
+          python3 -c "
+          import os
+          path = 'Podfile'
+          with open(path, 'r') as f:
+              content = f.read()
           
-          # 3. تحديث المكتبات
+          # إضافة كود الإصلاح في نهاية الـ post_install
+          fix_code = '''
+              installer.pods_project.targets.each do |target|
+                target.build_configurations.each do |config|
+                  config.build_settings['GCC_OPTIMIZATION_LEVEL'] = '0'
+                  config.build_settings['SWIFT_OPTIMIZATION_LEVEL'] = '-Onone'
+                  config.build_settings['CODE_SIGNING_ALLOWED'] = 'NO'
+                  config.build_settings['CODE_SIGNING_REQUIRED'] = 'NO'
+                  config.build_settings['ENABLE_BITCODE'] = 'NO'
+                end
+              end
+          '''
+          if 'post_install do |installer|' in content:
+              new_content = content.replace('post_install do |installer|', 'post_install do |installer|' + fix_code)
+              with open(path, 'w') as f:
+                  f.write(new_content)
+          "
+
+          # 3. تحديث الـ Pods مع الإعدادات الجديدة
           pod install
 
-          # 4. بناء التطبيق
+          # 4. بناء المشروع باستخدام Xcode 16 (المتوافق مع SDK 54)
           xcodebuild build \
             -workspace ZEUSBrowser.xcworkspace \
             -scheme ZEUSBrowser \
@@ -74,24 +78,24 @@ jobs:
             CODE_SIGN_IDENTITY="" \
             CODE_SIGNING_REQUIRED=NO \
             CODE_SIGNING_ALLOWED=NO \
-            GCC_OPTIMIZATION_LEVEL=0 \
-            SWIFT_OPTIMIZATION_LEVEL=-Onone \
-            COMPILER_INDEX_STORE_ENABLE=NO
+            AD_HOC_CODE_SIGNING_ALLOWED=YES \
+            COMPILER_INDEX_STORE_ENABLE=NO \
+            SWIFT_COMPILATION_MODE=wholemodule
 
       - name: 📦 Create unsigned IPA
         run: |
           cd web/ios
-          APP_PATH=$(find build_output/Build/Products/Release-iphoneos -name "*.app" | head -n 1)
+          APP_PATH=$(find build_output/Build/Products/Release-iphoneos -name \"*.app\" | head -n 1)
 
-          if [ -z "$APP_PATH" ]; then
-            echo "❌ App not found. Searching..."
-            find build_output -name "*.app"
+          if [ -z \"$APP_PATH\" ]; then
+            echo \"❌ App not found. List of files:\"
+            find build_output -name \"*.app\"
             exit 1
           fi
 
-          echo "✅ Found app at: $APP_PATH"
+          echo \"✅ Found app at: $APP_PATH\"
           mkdir -p Payload
-          cp -R "$APP_PATH" Payload/
+          cp -R \"$APP_PATH\" Payload/
           zip -r ZEUSBrowser-unsigned.ipa Payload
           rm -rf Payload
 
