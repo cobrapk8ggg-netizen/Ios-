@@ -9,13 +9,13 @@ jobs:
   build:
     runs-on: macos-latest
     env:
-      APP_NAME: App
+      APP_NAME: ZEUSBrowser
 
     steps:
       - name: 📥 Checkout
         uses: actions/checkout@v4
 
-      - name: 🧰 Setup Node
+      - name: 🛠️ Setup Node
         uses: actions/setup-node@v4
         with:
           node-version: 18
@@ -34,8 +34,8 @@ jobs:
         run: |
           cd web/ios
           xcodebuild build \
-            -workspace *.xcworkspace \
-            -scheme App \
+            -workspace ZEUSBrowser.xcworkspace \
+            -scheme ZEUSBrowser \
             -configuration Release \
             -sdk iphoneos \
             -destination 'generic/platform=iOS' \
@@ -47,16 +47,18 @@ jobs:
       - name: 📦 Create unsigned IPA
         run: |
           cd web/ios
-          APP_PATH="build_output/Build/Products/Release-iphoneos/App.app"
+          APP_PATH="build_output/Build/Products/Release-iphoneos/ZEUSBrowser.app"
 
           if [ ! -d "$APP_PATH" ]; then
-            echo "❌ App not found"
+            echo "❌ App not found at $APP_PATH"
+            # البحث عن المسار الصحيح في حال كان الاسم مختلفاً قليلاً
+            find build_output -name "*.app"
             exit 1
           fi
 
           mkdir Payload
           cp -R "$APP_PATH" Payload/
-          zip -r App-unsigned.ipa Payload
+          zip -r ZEUSBrowser-unsigned.ipa Payload
           rm -rf Payload build_output
 
       - name: ⬆️ Upload IPA
