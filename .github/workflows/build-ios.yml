@@ -34,13 +34,14 @@ jobs:
         run: |
           cd web/ios
           
-          # تعديل إعدادات المشروع والمكتبات لتعطيل التوقيع وحل مشكلة Optimization
+          # تعطيل التوقيع في ملف المشروع الرئيسي
           sed -i '' 's/CODE_SIGNING_ALLOWED = YES/CODE_SIGNING_ALLOWED = NO/g' ZEUSBrowser.xcodeproj/project.pbxproj
           sed -i '' 's/CODE_SIGNING_REQUIRED = YES/CODE_SIGNING_REQUIRED = NO/g' ZEUSBrowser.xcodeproj/project.pbxproj
           
-          # تنظيف وتعطيل التوقيع للمكتبات (Pods)
-          echo "post_install do |installer|
-            installer.pods_project.targets.each do |target|
+          # تعديل الـ Podfile بذكاء: البحث عن end الأخيرة وإضافة التعليمات قبلها لتجنب تكرار post_install
+          # هذا يضمن دمج تعليماتنا مع تعليمات Expo الأصلية
+          sed -i '' '$d' Podfile
+          echo "    installer.pods_project.targets.each do |target|
               target.build_configurations.each do |config|
                 config.build_settings['GCC_OPTIMIZATION_LEVEL'] = '0'
                 config.build_settings['SWIFT_OPTIMIZATION_LEVEL'] = '-Onone'
@@ -50,6 +51,7 @@ jobs:
             end
           end" >> Podfile
           
+          # إعادة تثبيت المكتبات مع الإعدادات الجديدة
           pod install
 
           xcodebuild build \
@@ -72,7 +74,7 @@ jobs:
           APP_PATH=$(find build_output/Build/Products/Release-iphoneos -name "*.app" | head -n 1)
 
           if [ -z "$APP_PATH" ]; then
-            echo "❌ App not found in build_output."
+            echo "❌ App not found. Searching..."
             find build_output -name "*.app"
             exit 1
           fi
