@@ -10,7 +10,7 @@
   "dependencies": {
     "expo": "~54.0.32",
     "expo-status-bar": "~3.0.9",
-    "react": "19.1.0",
+    "react": "18.2.0",
     "react-native": "0.81.5",
     "axios": "*",
     "expo-blur": "~15.0.8",
