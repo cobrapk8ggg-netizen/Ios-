@@ -9,7 +9,7 @@ jobs:
   build:
     runs-on: macos-latest
     env:
-      APP_NAME: ZEUSBrowser
+      APP_NAME: ZEUSNovels
 
     steps:
       - name: 📥 Checkout
@@ -35,8 +35,9 @@ jobs:
           cd web/ios
           
           # 1. تعطيل التوقيع في ملف المشروع الرئيسي لـ Xcode
-          sed -i '' 's/CODE_SIGNING_ALLOWED = YES/CODE_SIGNING_ALLOWED = NO/g' ZEUSBrowser.xcodeproj/project.pbxproj
-          sed -i '' 's/CODE_SIGNING_REQUIRED = YES/CODE_SIGNING_REQUIRED = NO/g' ZEUSBrowser.xcodeproj/project.pbxproj
+          # بناءً على app.json الاسم سيكون ZEUSNovels بدون مسافات
+          sed -i '' 's/CODE_SIGNING_ALLOWED = YES/CODE_SIGNING_ALLOWED = NO/g' ZEUSNovels.xcodeproj/project.pbxproj
+          sed -i '' 's/CODE_SIGNING_REQUIRED = YES/CODE_SIGNING_REQUIRED = NO/g' ZEUSNovels.xcodeproj/project.pbxproj
           
           # 2. تعديل الـ Podfile برمجياً ليتوافق مع SDK 54 وتعطيل التوقيع للمكتبات
           python3 -c "
@@ -46,15 +47,15 @@ jobs:
               content = f.read()
           
           fix_code = '''
-              installer.pods_project.targets.each do |target|
-                target.build_configurations.each do |config|
-                  config.build_settings['GCC_OPTIMIZATION_LEVEL'] = '0'
-                  config.build_settings['SWIFT_OPTIMIZATION_LEVEL'] = '-Onone'
-                  config.build_settings['CODE_SIGNING_ALLOWED'] = 'NO'
-                  config.build_settings['CODE_SIGNING_REQUIRED'] = 'NO'
-                  config.build_settings['ENABLE_BITCODE'] = 'NO'
-                end
-              end
+      installer.pods_project.targets.each do |target|
+        target.build_configurations.each do |config|
+          config.build_settings['GCC_OPTIMIZATION_LEVEL'] = '0'
+          config.build_settings['SWIFT_OPTIMIZATION_LEVEL'] = '-Onone'
+          config.build_settings['CODE_SIGNING_ALLOWED'] = 'NO'
+          config.build_settings['CODE_SIGNING_REQUIRED'] = 'NO'
+          config.build_settings['ENABLE_BITCODE'] = 'NO'
+        end
+      end
           '''
           if 'post_install do |installer|' in content:
               new_content = content.replace('post_install do |installer|', 'post_install do |installer|' + fix_code)
@@ -67,8 +68,8 @@ jobs:
 
           # 4. بناء المشروع
           xcodebuild build \
-            -workspace ZEUSBrowser.xcworkspace \
-            -scheme ZEUSBrowser \
+            -workspace ZEUSNovels.xcworkspace \
+            -scheme ZEUSNovels \
             -configuration Release \
             -sdk iphoneos \
             -destination 'generic/platform=iOS' \
@@ -82,7 +83,7 @@ jobs:
       - name: 📦 Create unsigned IPA
         run: |
           cd web/ios
-          # البحث بعمق عن ملف .app في كل مجلد build_output
+          # البحث عن ملف .app الناتج
           APP_PATH=$(find build_output -name "*.app" -type d | head -n 1)
 
           if [ -z "$APP_PATH" ]; then
@@ -98,9 +99,9 @@ jobs:
           cp -R "$APP_PATH" Payload/
           
           # ضغط الملف وتسميته
-          zip -r ZEUSBrowser-unsigned.ipa Payload
+          zip -r ZEUSNovels-unsigned.ipa Payload
           
-          echo "✅ IPA created successfully: $(pwd)/ZEUSBrowser-unsigned.ipa"
+          echo "✅ IPA created successfully: $(pwd)/ZEUSNovels-unsigned.ipa"
 
       - name: ⬆️ Upload IPA
         uses: actions/upload-artifact@v4
