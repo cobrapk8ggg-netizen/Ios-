@@ -14,7 +14,6 @@ import {
   UIManager,
   Modal,
   Alert,
-  Dimensions,
   Keyboard
 } from 'react-native';
 import { Image } from 'expo-image';
@@ -22,12 +21,12 @@ import { Ionicons } from '@expo/vector-icons';
 import { useNavigation } from '@react-navigation/native';
 import api from '../services/api';
 import { useToast } from '../context/ToastContext';
+import CustomAlert from './CustomAlert'; // Use Custom Alert
 
 if (Platform.OS === 'android' && UIManager.setLayoutAnimationEnabledExperimental) {
   UIManager.setLayoutAnimationEnabledExperimental(true);
 }
 
-// Helper to calculate time ago (Arabic)
 const getTimeAgo = (date) => {
   if (!date) return '';
   const seconds = Math.floor((new Date() - new Date(date)) / 1000);
@@ -44,8 +43,8 @@ const getTimeAgo = (date) => {
   return 'الآن';
 };
 
-// --- Animated Reaction Button Component ---
-const ReactionButton = ({ type, count, isSelected, onPress, icon }) => {
+// --- Animated Reaction Button Component (ICONS) ---
+const ReactionButton = ({ type, count, isSelected, onPress, iconName, color }) => {
     const scaleAnim = useRef(new Animated.Value(1)).current;
 
     const handlePress = () => {
@@ -63,8 +62,8 @@ const ReactionButton = ({ type, count, isSelected, onPress, icon }) => {
                 isSelected && styles.reactionItemActive,
                 { transform: [{ scale: scaleAnim }] }
             ]}>
-                <Text style={styles.emoji}>{icon}</Text>
-                <Text style={[styles.emojiCount, isSelected && {color: '#4a7cc7'}]}>{count}</Text>
+                <Ionicons name={iconName} size={22} color={isSelected ? color : '#888'} />
+                <Text style={[styles.emojiCount, isSelected && {color: color}]}>{count}</Text>
             </Animated.View>
         </TouchableOpacity>
     );
@@ -96,11 +95,11 @@ const CommentsHeader = memo(({
                     <Text style={styles.reactionLabel}>تفاعلات</Text>
                 </View>
                 <View style={styles.reactionIcons}>
-                    <ReactionButton type="like" icon="👍" count={stats.like} isSelected={stats.userReaction === 'like'} onPress={onReactionPress} />
-                    <ReactionButton type="love" icon="❤️" count={stats.love} isSelected={stats.userReaction === 'love'} onPress={onReactionPress} />
-                    <ReactionButton type="funny" icon="😂" count={stats.funny} isSelected={stats.userReaction === 'funny'} onPress={onReactionPress} />
-                    <ReactionButton type="sad" icon="😢" count={stats.sad} isSelected={stats.userReaction === 'sad'} onPress={onReactionPress} />
-                    <ReactionButton type="angry" icon="😡" count={stats.angry} isSelected={stats.userReaction === 'angry'} onPress={onReactionPress} />
+                    <ReactionButton type="like" iconName="thumbs-up" color="#4a7cc7" count={stats.like} isSelected={stats.userReaction === 'like'} onPress={onReactionPress} />
+                    <ReactionButton type="love" iconName="heart" color="#e74c3c" count={stats.love} isSelected={stats.userReaction === 'love'} onPress={onReactionPress} />
+                    <ReactionButton type="funny" iconName="happy" color="#f1c40f" count={stats.funny} isSelected={stats.userReaction === 'funny'} onPress={onReactionPress} />
+                    <ReactionButton type="sad" iconName="sad" color="#9b59b6" count={stats.sad} isSelected={stats.userReaction === 'sad'} onPress={onReactionPress} />
+                    <ReactionButton type="angry" iconName="flame" color="#e67e22" count={stats.angry} isSelected={stats.userReaction === 'angry'} onPress={onReactionPress} />
                 </View>
             </View>
             )}
@@ -114,7 +113,7 @@ const CommentsHeader = memo(({
                     multiline
                     value={text}
                     onChangeText={setText} 
-                    textAlign="right" // Forced Right Align
+                    textAlign="right" 
                 />
                 <View style={styles.inputToolbar}>
                     <TouchableOpacity onPress={handlePostComment} style={styles.postBtn}>
@@ -125,7 +124,6 @@ const CommentsHeader = memo(({
                     <View style={styles.formatTools}>
                         <Ionicons name="text" size={18} color="#666" style={styles.toolIcon} />
                         <Ionicons name="happy-outline" size={18} color="#666" style={styles.toolIcon} />
-                        <Ionicons name="at" size={18} color="#666" style={styles.toolIcon} />
                     </View>
                 </View>
                 {(replyingTo || isEditing) && (
@@ -170,7 +168,10 @@ const CommentItem = ({ item, onReply, onDelete, onEdit, onLikeAction, onBlockUse
     const [menuVisible, setMenuVisible] = useState(false);
     const [menuPosition, setMenuPosition] = useState({ x: 0, y: 0 });
     
-    // Safety check for deleted users
+    // Custom Alert State
+    const [alertVisible, setAlertVisible] = useState(false);
+    const [alertConfig, setAlertConfig] = useState({});
+
     const user = item.user || { name: 'مستخدم محذوف', _id: 'deleted', picture: null, role: 'user', isCommentBlocked: false };
     
     const scaleAnim = useRef(new Animated.Value(1)).current;
@@ -209,7 +210,6 @@ const CommentItem = ({ item, onReply, onDelete, onEdit, onLikeAction, onBlockUse
     const handleMenuPress = () => {
         if (menuButtonRef.current) {
             menuButtonRef.current.measure((fx, fy, width, height, px, py) => {
-                // Calculate position: Below the button, aligned left
                 setMenuPosition({ x: px, y: py + height + 5 });
                 setMenuVisible(true);
             });
@@ -221,20 +221,49 @@ const CommentItem = ({ item, onReply, onDelete, onEdit, onLikeAction, onBlockUse
     const isAdmin = currentUser?.role === 'admin';
     const isOwner = user._id === currentUser?._id;
 
-    // --- Context Menu Actions ---
-    const handleReport = () => {
+    // --- Actions ---
+    const confirmDelete = () => {
         setMenuVisible(false);
-        Alert.alert("تم الإبلاغ", "شكراً لك، سنقوم بمراجعة التعليق.");
+        setAlertConfig({
+            title: "حذف التعليق",
+            message: "هل أنت متأكد من حذف هذا التعليق؟",
+            type: 'danger',
+            onConfirm: () => {
+                setAlertVisible(false);
+                onDelete(item._id);
+            }
+        });
+        setAlertVisible(true);
     };
 
-    const handleBlock = () => {
+    const confirmBlock = () => {
         setMenuVisible(false);
-        onBlockUser(user._id, user.name);
+        setAlertConfig({
+            title: "حظر المستخدم",
+            message: `هل تريد منع ${user.name} من التعليق نهائياً؟`,
+            type: 'danger',
+            confirmText: 'حظر',
+            onConfirm: () => {
+                setAlertVisible(false);
+                onBlockUser(user._id, user.name);
+            }
+        });
+        setAlertVisible(true);
     };
 
     return (
         <View style={styles.commentRow}>
-            {/* Avatar - Navigates to Profile */}
+            {/* Custom Alert */}
+            <CustomAlert 
+                visible={alertVisible}
+                title={alertConfig.title}
+                message={alertConfig.message}
+                type={alertConfig.type}
+                confirmText={alertConfig.confirmText}
+                onCancel={() => setAlertVisible(false)}
+                onConfirm={alertConfig.onConfirm}
+            />
+
             <TouchableOpacity onPress={() => user._id !== 'deleted' && navigation.push('UserProfile', { userId: user._id })}>
                 <Image 
                     source={user.picture ? { uri: user.picture } : require('../../assets/adaptive-icon.png')} 
@@ -244,7 +273,6 @@ const CommentItem = ({ item, onReply, onDelete, onEdit, onLikeAction, onBlockUse
             </TouchableOpacity>
             
             <View style={styles.commentBody}>
-                {/* Header: Name + Time */}
                 <View style={styles.commentHeader}>
                     <Text style={[styles.userName, user._id === 'deleted' && {color: '#888', fontStyle: 'italic'}]}>
                         {user.name}
@@ -254,21 +282,13 @@ const CommentItem = ({ item, onReply, onDelete, onEdit, onLikeAction, onBlockUse
                     <Text style={styles.timeText}>{getTimeAgo(item.createdAt)}</Text>
                 </View>
 
-                {/* Content */}
                 <Text style={styles.commentContent}>{item.content}</Text>
                 
-                {/* Edited Label */}
                 {item.isEdited && (
                     <Text style={styles.editedLabel}>(تم تعديله)</Text>
                 )}
 
-                {/* Actions Bar */}
                 <View style={styles.actionsBar}>
-                    {/* Context Menu Trigger (Three Dots) - Now the LAST child because of row-reverse? No, visually Left means last in RTL? 
-                        Let's keep it simple: row-reverse makes the first child appear on the RIGHT. 
-                        To make it appear on the LEFT, it should be the LAST child in the list. 
-                    */}
-                    
                     <TouchableOpacity onPress={() => handleLike('like')} style={styles.actionBtn}>
                         <Animated.View style={{ transform: [{ scale: scaleAnim }] }}>
                             <Ionicons name={isLiked ? "thumbs-up" : "thumbs-up-outline"} size={16} color={isLiked ? "#4a7cc7" : "#888"} />
@@ -284,7 +304,6 @@ const CommentItem = ({ item, onReply, onDelete, onEdit, onLikeAction, onBlockUse
                         <Text style={styles.replyText}>رد</Text>
                     </TouchableOpacity>
 
-                    {/* Dots on the LEFT (Last child in row-reverse = Leftmost visually) */}
                     <TouchableOpacity 
                         ref={menuButtonRef}
                         onPress={handleMenuPress} 
@@ -294,7 +313,6 @@ const CommentItem = ({ item, onReply, onDelete, onEdit, onLikeAction, onBlockUse
                     </TouchableOpacity>
                 </View>
 
-                {/* Replies Toggle */}
                 {(item.replyCount > 0 || replies.length > 0) && (
                     <TouchableOpacity style={styles.viewRepliesBtn} onPress={fetchReplies}>
                         <View style={styles.replyLine} />
@@ -304,7 +322,6 @@ const CommentItem = ({ item, onReply, onDelete, onEdit, onLikeAction, onBlockUse
                     </TouchableOpacity>
                 )}
 
-                {/* Nested Replies */}
                 {showReplies && (
                     <View style={styles.repliesContainer}>
                         {loadingReplies ? <ActivityIndicator size="small" color="#4a7cc7" /> : 
@@ -325,14 +342,11 @@ const CommentItem = ({ item, onReply, onDelete, onEdit, onLikeAction, onBlockUse
                 )}
             </View>
 
-            {/* Dropdown Menu Modal */}
             <Modal transparent visible={menuVisible} animationType="fade" onRequestClose={() => setMenuVisible(false)}>
                 <TouchableOpacity style={styles.modalOverlay} activeOpacity={1} onPress={() => setMenuVisible(false)}>
                     <View style={[styles.popoverMenu, { top: menuPosition.y, left: menuPosition.x }]}>
-                        {/* Little Triangle Pointer */}
                         <View style={styles.menuArrow} />
                         
-                        {/* Edit Option (Owner only) */}
                         {isOwner && (
                             <TouchableOpacity style={styles.menuItem} onPress={() => { setMenuVisible(false); onEdit(item); }}>
                                 <Text style={styles.menuText}>تعديل</Text>
@@ -340,33 +354,25 @@ const CommentItem = ({ item, onReply, onDelete, onEdit, onLikeAction, onBlockUse
                             </TouchableOpacity>
                         )}
 
-                        {/* Delete Option (Admin or Owner) */}
                         {(isAdmin || isOwner) && (
-                            <TouchableOpacity style={styles.menuItem} onPress={() => { setMenuVisible(false); onDelete(item._id); }}>
+                            <TouchableOpacity style={styles.menuItem} onPress={confirmDelete}>
                                 <Text style={[styles.menuText, {color: '#ff4444'}]}>حذف</Text>
                                 <Ionicons name="trash-outline" size={18} color="#ff4444" />
                             </TouchableOpacity>
                         )}
                         
-                        <TouchableOpacity style={styles.menuItem} onPress={handleReport}>
+                        <TouchableOpacity style={styles.menuItem} onPress={() => { setMenuVisible(false); }}>
                             <Text style={styles.menuText}>إبلاغ</Text>
                             <Ionicons name="flag-outline" size={18} color="#fff" />
                         </TouchableOpacity>
 
-                        {/* Admin Block Option */}
                         {isAdmin && !isOwner && user._id !== 'deleted' && (
-                            <>
-                                <TouchableOpacity style={styles.menuItem} onPress={handleBlock}>
-                                    <Text style={[styles.menuText, {color: '#ff4444'}]}>
-                                        {user.isCommentBlocked ? 'فك حظر التعليق' : 'حظر من التعليق'}
-                                    </Text>
-                                    <Ionicons name="ban-outline" size={18} color="#ff4444" />
-                                </TouchableOpacity>
-                                <TouchableOpacity style={styles.menuItem} onPress={() => setMenuVisible(false)}>
-                                    <Text style={[styles.menuText, {color: '#ff4444'}]}>تثبيت</Text>
-                                    <Ionicons name="pin-outline" size={18} color="#ff4444" />
-                                </TouchableOpacity>
-                            </>
+                            <TouchableOpacity style={styles.menuItem} onPress={confirmBlock}>
+                                <Text style={[styles.menuText, {color: '#ff4444'}]}>
+                                    {user.isCommentBlocked ? 'فك الحظر' : 'حظر'}
+                                </Text>
+                                <Ionicons name="ban-outline" size={18} color="#ff4444" />
+                            </TouchableOpacity>
                         )}
                     </View>
                 </TouchableOpacity>
@@ -375,7 +381,6 @@ const CommentItem = ({ item, onReply, onDelete, onEdit, onLikeAction, onBlockUse
     );
 };
 
-// --- Main Component ---
 export default function CommentsSection({ novelId, user, chapterNumber = null }) {
     const { showToast } = useToast();
     const [comments, setComments] = useState([]);
@@ -386,10 +391,7 @@ export default function CommentsSection({ novelId, user, chapterNumber = null })
     const [replyingTo, setReplyingTo] = useState(null); 
     const [sortBy, setSortBy] = useState('newest'); 
     
-    // Edit State
     const [editingCommentId, setEditingCommentId] = useState(null);
-
-    // Pagination
     const [page, setPage] = useState(1);
     const [hasMore, setHasMore] = useState(true);
     const [loadingMore, setLoadingMore] = useState(false);
@@ -448,19 +450,13 @@ export default function CommentsSection({ novelId, user, chapterNumber = null })
 
         try {
             if (editingCommentId) {
-                // EDIT MODE
                 const res = await api.put(`/api/comments/${editingCommentId}`, { content: text });
-                
-                // Update local list
                 setComments(prev => prev.map(c => c._id === editingCommentId ? res.data : c));
                 showToast("تم تعديل التعليق", "success");
-                
-                // Reset
                 setEditingCommentId(null);
                 setText('');
                 Keyboard.dismiss();
             } else {
-                // CREATE MODE
                 const res = await api.post('/api/comments', {
                     novelId,
                     content: text,
@@ -512,9 +508,7 @@ export default function CommentsSection({ novelId, user, chapterNumber = null })
 
         try {
             await api.post(`/api/comments/${commentId}/action`, { action });
-        } catch (e) {
-            console.log("Action failed");
-        }
+        } catch (e) { console.log("Action failed"); }
     };
 
     const handleDelete = async (commentId) => {
@@ -532,8 +526,7 @@ export default function CommentsSection({ novelId, user, chapterNumber = null })
     const handleEdit = (comment) => {
         setEditingCommentId(comment._id);
         setText(comment.content);
-        setReplyingTo(null); // Cancel reply if active
-        // Ideally scroll to input
+        setReplyingTo(null);
     };
 
     const handleCancelEdit = () => {
@@ -551,32 +544,17 @@ export default function CommentsSection({ novelId, user, chapterNumber = null })
                 ...res.data,
                 total: res.data.like + res.data.love + res.data.funny + res.data.sad + res.data.angry
             }));
-        } catch (e) {
-            console.log(e);
-        }
+        } catch (e) { console.log(e); }
     };
 
     const handleBlockUser = async (userId, userName) => {
-        Alert.alert(
-            "حظر التعليق",
-            `هل تريد منع ${userName} من التعليق في جميع الروايات؟`,
-            [
-                { text: "إلغاء", style: "cancel" },
-                { 
-                    text: "حظر", 
-                    style: "destructive", 
-                    onPress: async () => {
-                        try {
-                            await api.put(`/api/admin/users/${userId}/block-comment`, { block: true });
-                            showToast(`تم حظر ${userName} من التعليق`, "success");
-                            fetchComments(true); 
-                        } catch (e) {
-                            showToast("فشل الحظر", "error");
-                        }
-                    }
-                }
-            ]
-        );
+        try {
+            await api.put(`/api/admin/users/${userId}/block-comment`, { block: true });
+            showToast(`تم حظر ${userName} من التعليق`, "success");
+            fetchComments(true); 
+        } catch (e) {
+            showToast("فشل الحظر", "error");
+        }
     };
 
     return (
@@ -629,219 +607,61 @@ export default function CommentsSection({ novelId, user, chapterNumber = null })
 }
 
 const styles = StyleSheet.create({
-    container: {
-        flex: 1,
-        backgroundColor: '#0a0a0a',
-        paddingTop: 20
-    },
-    listContent: {
-        paddingHorizontal: 15,
-        paddingBottom: 50
-    },
-    
-    // Reaction Bar
+    container: { flex: 1, backgroundColor: '#0a0a0a', paddingTop: 20 },
+    listContent: { paddingHorizontal: 15, paddingBottom: 50 },
     reactionContainer: {
-        backgroundColor: '#161616',
-        borderRadius: 12,
-        padding: 15,
-        marginBottom: 15,
-        flexDirection: 'column',
-        alignItems: 'center',
-        borderWidth: 1,
-        borderColor: '#222'
+        backgroundColor: '#161616', borderRadius: 12, padding: 15, marginBottom: 15,
+        flexDirection: 'column', alignItems: 'center', borderWidth: 1, borderColor: '#222'
     },
-    reactionStats: {
-        flexDirection: 'row',
-        alignItems: 'center',
-        marginBottom: 10
-    },
+    reactionStats: { flexDirection: 'row', alignItems: 'center', marginBottom: 10 },
     reactionCount: { color: '#4a7cc7', fontSize: 16, fontWeight: 'bold', marginRight: 5 },
     reactionLabel: { color: '#888', fontSize: 14 },
-    reactionIcons: {
-        flexDirection: 'row',
-        justifyContent: 'space-around',
-        width: '100%',
-        marginTop: 5
-    },
-    reactionItem: { alignItems: 'center', backgroundColor: '#222', borderRadius: 12, paddingVertical: 5, paddingHorizontal: 10, minWidth: 50 },
-    reactionItemActive: { backgroundColor: 'rgba(74, 124, 199, 0.2)', borderWidth: 1, borderColor: '#4a7cc7' },
-    emoji: { fontSize: 20, marginBottom: 2 },
+    reactionIcons: { flexDirection: 'row', justifyContent: 'space-around', width: '100%', marginTop: 5 },
+    reactionItem: { alignItems: 'center', backgroundColor: '#222', borderRadius: 12, paddingVertical: 8, paddingHorizontal: 12, minWidth: 50, gap: 4 },
+    reactionItemActive: { backgroundColor: 'rgba(74, 124, 199, 0.1)', borderWidth: 1, borderColor: '#4a7cc7' },
     emojiCount: { color: '#fff', fontSize: 12, fontWeight: 'bold' },
-
-    // Input Card
-    inputCard: {
-        backgroundColor: '#161616',
-        borderRadius: 12,
-        borderWidth: 1,
-        borderColor: '#333',
-        marginBottom: 20,
-        padding: 10
-    },
-    textInput: {
-        color: '#fff',
-        minHeight: 80,
-        textAlignVertical: 'top',
-        fontSize: 14,
-        marginBottom: 10,
-        textAlign: 'right' // Force Right Align
-    },
-    inputToolbar: {
-        flexDirection: 'row',
-        justifyContent: 'space-between',
-        alignItems: 'center',
-        borderTopWidth: 1,
-        borderTopColor: '#222',
-        paddingTop: 10
-    },
-    postBtn: {
-        flexDirection: 'row',
-        alignItems: 'center',
-        backgroundColor: '#333',
-        paddingHorizontal: 15,
-        paddingVertical: 6,
-        borderRadius: 6
-    },
+    inputCard: { backgroundColor: '#161616', borderRadius: 12, borderWidth: 1, borderColor: '#333', marginBottom: 20, padding: 10 },
+    textInput: { color: '#fff', minHeight: 80, textAlignVertical: 'top', fontSize: 14, marginBottom: 10, textAlign: 'right' },
+    inputToolbar: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', borderTopWidth: 1, borderTopColor: '#222', paddingTop: 10 },
+    postBtn: { flexDirection: 'row', alignItems: 'center', backgroundColor: '#333', paddingHorizontal: 15, paddingVertical: 6, borderRadius: 6 },
     postBtnText: { color: '#fff', fontSize: 12, fontWeight: '600' },
     formatTools: { flexDirection: 'row', gap: 15 },
     toolIcon: { opacity: 0.7 },
     cancelReply: { position: 'absolute', top: 10, left: 10 },
-
-    // Filter Bar
-    filterBar: {
-        flexDirection: 'row',
-        justifyContent: 'space-between',
-        alignItems: 'center',
-        marginBottom: 15,
-        borderBottomWidth: 1,
-        borderBottomColor: '#222',
-        paddingBottom: 10
-    },
+    filterBar: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 15, borderBottomWidth: 1, borderBottomColor: '#222', paddingBottom: 10 },
     sortButtons: { flexDirection: 'row', gap: 8 },
-    sortBtn: {
-        paddingHorizontal: 12,
-        paddingVertical: 6,
-        borderRadius: 6,
-        backgroundColor: '#1a1a1a',
-        borderWidth: 1,
-        borderColor: '#333'
-    },
-    sortBtnActive: {
-        backgroundColor: '#4a7cc7', 
-        borderColor: '#4a7cc7'
-    },
+    sortBtn: { paddingHorizontal: 12, paddingVertical: 6, borderRadius: 6, backgroundColor: '#1a1a1a', borderWidth: 1, borderColor: '#333' },
+    sortBtnActive: { backgroundColor: '#4a7cc7', borderColor: '#4a7cc7' },
     sortBtnText: { color: '#888', fontSize: 12 },
     commentCountBadge: { flexDirection: 'row', alignItems: 'center' },
     countText: { color: '#4a7cc7', fontSize: 14, fontWeight: 'bold' },
     countLabel: { color: '#fff', fontSize: 14, marginLeft: 5, fontWeight: 'bold' },
-
-    // Comment Item
-    commentRow: {
-        flexDirection: 'row-reverse', 
-        marginBottom: 20,
-        borderBottomWidth: 1,
-        borderBottomColor: '#1a1a1a',
-        paddingBottom: 15
-    },
-    avatar: {
-        width: 40,
-        height: 40,
-        borderRadius: 20,
-        marginLeft: 10,
-        backgroundColor: '#333',
-        borderWidth: 1,
-        borderColor: '#444'
-    },
+    commentRow: { flexDirection: 'row-reverse', marginBottom: 20, borderBottomWidth: 1, borderBottomColor: '#1a1a1a', paddingBottom: 15 },
+    avatar: { width: 40, height: 40, borderRadius: 20, marginLeft: 10, backgroundColor: '#333', borderWidth: 1, borderColor: '#444' },
     commentBody: { flex: 1 },
-    commentHeader: {
-        flexDirection: 'row-reverse',
-        alignItems: 'center',
-        marginBottom: 5,
-        justifyContent: 'flex-start'
-    },
+    commentHeader: { flexDirection: 'row-reverse', alignItems: 'center', marginBottom: 5, justifyContent: 'flex-start' },
     userName: { color: '#fff', fontSize: 13, fontWeight: 'bold', marginLeft: 8 },
     adminBadge: { backgroundColor: '#4a7cc7', paddingHorizontal: 4, borderRadius: 3, marginLeft: 5 },
     blockedBadge: { backgroundColor: '#222', borderWidth: 1, borderColor: '#ff4444', paddingHorizontal: 4, borderRadius: 3, marginLeft: 5 },
     adminText: { color: '#fff', fontSize: 9, fontWeight: 'bold' },
     timeText: { color: '#666', fontSize: 10 },
     commentContent: { color: '#ccc', fontSize: 14, lineHeight: 22, textAlign: 'right', marginBottom: 5 },
-    
     editedLabel: { color: 'rgba(255,255,255,0.3)', fontSize: 10, textAlign: 'right', marginBottom: 10, fontStyle: 'italic' },
-
-    actionsBar: {
-        flexDirection: 'row-reverse',
-        alignItems: 'center',
-        gap: 15
-    },
+    actionsBar: { flexDirection: 'row-reverse', alignItems: 'center', gap: 15 },
     actionBtn: { flexDirection: 'row-reverse', alignItems: 'center', gap: 5, padding: 5, borderRadius: 4, backgroundColor: '#1a1a1a', borderWidth: 1, borderColor: '#222', minWidth: 40, justifyContent: 'center' },
     actionText: { color: '#888', fontSize: 11 },
     replyBtn: { paddingHorizontal: 10, paddingVertical: 4 },
     replyText: { color: '#888', fontSize: 12 },
     menuTrigger: { padding: 5 },
-
-    // Popover Menu (Styled Dropdown)
-    modalOverlay: {
-        flex: 1,
-        backgroundColor: 'transparent', // Transparent to see behind
-    },
-    popoverMenu: {
-        position: 'absolute',
-        backgroundColor: '#1a1a1a',
-        borderRadius: 12,
-        borderWidth: 1,
-        borderColor: '#333',
-        padding: 5,
-        width: 180,
-        shadowColor: "#000",
-        shadowOffset: { width: 0, height: 5 },
-        shadowOpacity: 0.5,
-        shadowRadius: 10,
-        elevation: 10,
-        zIndex: 9999
-    },
-    menuArrow: {
-        position: 'absolute',
-        top: -8,
-        left: 10, // Align with dots roughly
-        width: 0, 
-        height: 0, 
-        borderLeftWidth: 8,
-        borderRightWidth: 8,
-        borderBottomWidth: 8,
-        borderLeftColor: 'transparent',
-        borderRightColor: 'transparent',
-        borderBottomColor: '#333', // Match border color
-    },
-    menuItem: {
-        flexDirection: 'row',
-        justifyContent: 'flex-end',
-        alignItems: 'center',
-        paddingVertical: 12,
-        paddingHorizontal: 15,
-        borderBottomWidth: 1,
-        borderBottomColor: '#222',
-        gap: 10
-    },
-    menuText: {
-        color: '#fff',
-        fontSize: 14,
-        fontWeight: '600'
-    },
-
-    // Replies
+    modalOverlay: { flex: 1, backgroundColor: 'transparent' },
+    popoverMenu: { position: 'absolute', backgroundColor: '#1a1a1a', borderRadius: 12, borderWidth: 1, borderColor: '#333', padding: 5, width: 180, shadowColor: "#000", shadowOffset: { width: 0, height: 5 }, shadowOpacity: 0.5, shadowRadius: 10, elevation: 10, zIndex: 9999 },
+    menuArrow: { position: 'absolute', top: -8, left: 10, width: 0, height: 0, borderLeftWidth: 8, borderRightWidth: 8, borderBottomWidth: 8, borderLeftColor: 'transparent', borderRightColor: 'transparent', borderBottomColor: '#333' },
+    menuItem: { flexDirection: 'row', justifyContent: 'flex-end', alignItems: 'center', paddingVertical: 12, paddingHorizontal: 15, borderBottomWidth: 1, borderBottomColor: '#222', gap: 10 },
+    menuText: { color: '#fff', fontSize: 14, fontWeight: '600' },
     viewRepliesBtn: { flexDirection: 'row-reverse', alignItems: 'center', marginTop: 10 },
     replyLine: { width: 30, height: 1, backgroundColor: '#333', marginLeft: 10 },
     viewRepliesText: { color: '#4a7cc7', fontSize: 12 },
     repliesContainer: { marginTop: 10, paddingRight: 10, borderRightWidth: 2, borderRightColor: '#222' },
-
-    // Load More
-    loadMoreBtn: {
-        alignSelf: 'center',
-        paddingHorizontal: 20,
-        paddingVertical: 10,
-        borderWidth: 1,
-        borderColor: '#444',
-        borderRadius: 8,
-        marginTop: 10
-    },
+    loadMoreBtn: { alignSelf: 'center', paddingHorizontal: 20, paddingVertical: 10, borderWidth: 1, borderColor: '#444', borderRadius: 8, marginTop: 10 },
     loadMoreText: { color: '#888', fontSize: 12 }
 });
