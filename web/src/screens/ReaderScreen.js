@@ -28,7 +28,7 @@ import { AuthContext } from '../context/AuthContext';
 import { useToast } from '../context/ToastContext';
 
 const { width, height: SCREEN_HEIGHT } = Dimensions.get('window');
-const DRAWER_WIDTH = width * 0.85; // زيادة العرض قليلاً للقائمة الجانبية
+const DRAWER_WIDTH = width * 0.85; 
 
 const FONT_OPTIONS = [
   { id: 'Cairo', name: 'القاهرة', family: Platform.OS === 'ios' || Platform.OS === 'web' ? "'Cairo', sans-serif" : "Cairo", url: 'https://fonts.googleapis.com/css2?family=Cairo:wght@400;700&display=swap' },
@@ -56,24 +56,34 @@ const [textColor, setTextColor] = useState('#e0e0e0');
 const [fontFamily, setFontFamily] = useState(FONT_OPTIONS[0]);
 const [showMenu, setShowMenu] = useState(false);
 const [showSettings, setShowSettings] = useState(false);
-const [settingsView, setSettingsView] = useState('main'); // 'main' or 'appearance'
+const [settingsView, setSettingsView] = useState('main'); 
 
-// Replacements State
-const [replacements, setReplacements] = useState([]);
+// --- REPLACEMENTS STATE (New Structure) ---
+const [folders, setFolders] = useState([]); // [{id, name, replacements: []}]
+const [currentFolderId, setCurrentFolderId] = useState(null); // ID of currently active folder
+const [replacementViewMode, setReplacementViewMode] = useState('folders'); // 'folders' or 'list'
+const [replaceSearch, setReplaceSearch] = useState(''); // Search query
+const [replaceSortDesc, setReplaceSortDesc] = useState(true); // Sort order (Newest first by default)
+
+// Inputs
 const [newOriginal, setNewOriginal] = useState('');
 const [newReplacement, setNewReplacement] = useState('');
-const [editingId, setEditingId] = useState(null); // To track which item is being edited
+const [editingId, setEditingId] = useState(null); 
+
+// Folder Creation Modal
+const [showFolderModal, setShowFolderModal] = useState(false);
+const [newFolderName, setNewFolderName] = useState('');
 
 // Global Cleaner State (Admin Only)
 const [cleanerWords, setCleanerWords] = useState([]);
 const [newCleanerWord, setNewCleanerWord] = useState('');
-const [cleanerEditingId, setCleanerEditingId] = useState(null); // Index or ID
+const [cleanerEditingId, setCleanerEditingId] = useState(null); 
 const [cleaningLoading, setCleaningLoading] = useState(false);
 
 // Drawer State
-const [drawerMode, setDrawerMode] = useState('none'); // 'none', 'chapters', 'replacements', 'cleaner'
-const slideAnim = useRef(new Animated.Value(-DRAWER_WIDTH)).current; // Left Drawer (Chapters)
-const slideAnimRight = useRef(new Animated.Value(DRAWER_WIDTH)).current; // Right Drawer (Settings/Tools)
+const [drawerMode, setDrawerMode] = useState('none'); 
+const slideAnim = useRef(new Animated.Value(-DRAWER_WIDTH)).current; 
+const slideAnimRight = useRef(new Animated.Value(DRAWER_WIDTH)).current; 
 const fadeAnim = useRef(new Animated.Value(0)).current; 
 const backdropAnim = useRef(new Animated.Value(0)).current;
 
@@ -89,7 +99,7 @@ const isAdmin = userInfo?.role === 'admin';
 
 useEffect(() => {
     loadSettings();
-    loadReplacements();
+    loadFoldersAndPrefs(); // Load folders instead of simple replacements
     fetchAuthorData();
     if (isAdmin) fetchCleanerWords();
 }, []);
@@ -143,72 +153,216 @@ const saveSettings = async (newSettings) => {
     } catch (e) { console.error("Error saving settings", e); }
 };
 
-// --- Replacements Logic ---
-const loadReplacements = async () => {
+// --- NEW FOLDERS & REPLACEMENTS LOGIC ---
+
+const loadFoldersAndPrefs = async () => {
     try {
-        const saved = await AsyncStorage.getItem('@reader_replacements');
-        if (saved) {
-            setReplacements(JSON.parse(saved));
+        // Load Folders
+        const savedFolders = await AsyncStorage.getItem('@reader_folders_v2');
+        let parsedFolders = [];
+        
+        if (savedFolders) {
+            parsedFolders = JSON.parse(savedFolders);
+        } else {
+            // Migration: Check for old simple list
+            const oldReplacements = await AsyncStorage.getItem('@reader_replacements');
+            if (oldReplacements) {
+                parsedFolders = [{
+                    id: 'default_migrated',
+                    name: 'عام (قديم)',
+                    replacements: JSON.parse(oldReplacements)
+                }];
+                await AsyncStorage.setItem('@reader_folders_v2', JSON.stringify(parsedFolders));
+            }
         }
-    } catch (e) { console.error("Error loading replacements", e); }
+        setFolders(parsedFolders);
+
+        // Load UI Prefs (Last folder, Sort order)
+        const prefs = await AsyncStorage.getItem('@reader_ui_prefs');
+        if (prefs) {
+            const { lastFolderId, sortDesc } = JSON.parse(prefs);
+            if (sortDesc !== undefined) setReplaceSortDesc(sortDesc);
+            
+            // Auto-open last folder if it exists
+            if (lastFolderId) {
+                const folderExists = parsedFolders.find(f => f.id === lastFolderId);
+                if (folderExists) {
+                    setCurrentFolderId(lastFolderId);
+                    setReplacementViewMode('list');
+                }
+            }
+        }
+    } catch (e) { console.error("Error loading folders", e); }
 };
 
-const saveReplacements = async (newReplacements) => {
+const saveFoldersData = async (newFolders) => {
     try {
-        setReplacements(newReplacements);
-        await AsyncStorage.setItem('@reader_replacements', JSON.stringify(newReplacements));
-    } catch (e) { console.error("Error saving replacements", e); }
+        setFolders(newFolders);
+        await AsyncStorage.setItem('@reader_folders_v2', JSON.stringify(newFolders));
+    } catch (e) { console.error("Error saving folders", e); }
 };
 
+const saveUiPrefs = async (prefs) => {
+    try {
+        const current = await AsyncStorage.getItem('@reader_ui_prefs');
+        const existing = current ? JSON.parse(current) : {};
+        const newPrefs = { ...existing, ...prefs };
+        await AsyncStorage.setItem('@reader_ui_prefs', JSON.stringify(newPrefs));
+    } catch (e) { console.error("Error saving prefs", e); }
+};
+
+// Folder Actions
+const handleCreateFolder = () => {
+    if (!newFolderName.trim()) return;
+    
+    const newFolder = {
+        id: Date.now().toString(),
+        name: newFolderName.trim(),
+        replacements: []
+    };
+    
+    const updatedFolders = [...folders, newFolder];
+    saveFoldersData(updatedFolders);
+    setShowFolderModal(false);
+    setNewFolderName('');
+};
+
+const deleteFolder = (folderId) => {
+    Alert.alert("حذف المجلد", "هل أنت متأكد؟ سيتم حذف جميع الاستبدالات داخله.", [
+        { text: "إلغاء" },
+        { 
+            text: "حذف", 
+            style: 'destructive', 
+            onPress: () => {
+                const updated = folders.filter(f => f.id !== folderId);
+                saveFoldersData(updated);
+                if (currentFolderId === folderId) {
+                    setCurrentFolderId(null);
+                    setReplacementViewMode('folders');
+                }
+            }
+        }
+    ]);
+};
+
+const openFolder = (folderId) => {
+    setCurrentFolderId(folderId);
+    setReplacementViewMode('list');
+    saveUiPrefs({ lastFolderId: folderId });
+    setReplaceSearch(''); // Clear search on enter
+};
+
+const backToFolders = () => {
+    setReplacementViewMode('folders');
+    // We don't clear currentFolderId so the replacements keep working, 
+    // but we can clear it from prefs if we want 'clean slate' next launch.
+    // For now, let's keep it active.
+};
+
+const toggleSortOrder = () => {
+    const newOrder = !replaceSortDesc;
+    setReplaceSortDesc(newOrder);
+    saveUiPrefs({ sortDesc: newOrder });
+};
+
+// Replacement Item Actions (Scoped to Current Folder)
 const handleAddReplacement = () => {
+    if (!currentFolderId) return;
     if (!newOriginal.trim() || !newReplacement.trim()) {
         Alert.alert('تنبيه', 'يرجى إدخال الكلمة الأصلية والبديلة');
         return;
     }
 
-    let updatedList;
+    const folderIndex = folders.findIndex(f => f.id === currentFolderId);
+    if (folderIndex === -1) return;
+
+    const currentFolder = folders[folderIndex];
+    let updatedReplacements = [...currentFolder.replacements];
+
     if (editingId !== null) {
-        updatedList = replacements.map((item, index) => 
+        // Edit existing
+        updatedReplacements = updatedReplacements.map((item, index) => 
             index === editingId ? { original: newOriginal.trim(), replacement: newReplacement.trim() } : item
         );
         setEditingId(null);
     } else {
-        updatedList = [...replacements, { original: newOriginal.trim(), replacement: newReplacement.trim() }];
+        // Add new
+        updatedReplacements.push({ original: newOriginal.trim(), replacement: newReplacement.trim() });
     }
 
-    saveReplacements(updatedList);
+    const updatedFolders = [...folders];
+    updatedFolders[folderIndex] = { ...currentFolder, replacements: updatedReplacements };
+    
+    saveFoldersData(updatedFolders);
     setNewOriginal('');
     setNewReplacement('');
     Keyboard.dismiss();
 };
 
-const handleEditReplacement = (index) => {
-    const item = replacements[index];
+const handleEditReplacement = (item, realIndex) => {
     setNewOriginal(item.original);
     setNewReplacement(item.replacement);
-    setEditingId(index);
+    setEditingId(realIndex); // Store the actual index in the main array
 };
 
-const handleDeleteReplacement = (index) => {
-    const updatedList = replacements.filter((_, i) => i !== index);
-    saveReplacements(updatedList);
-    if (editingId === index) {
+const handleDeleteReplacement = (realIndex) => {
+    if (!currentFolderId) return;
+    const folderIndex = folders.findIndex(f => f.id === currentFolderId);
+    if (folderIndex === -1) return;
+
+    const currentFolder = folders[folderIndex];
+    const updatedReplacements = currentFolder.replacements.filter((_, i) => i !== realIndex);
+
+    const updatedFolders = [...folders];
+    updatedFolders[folderIndex] = { ...currentFolder, replacements: updatedReplacements };
+    saveFoldersData(updatedFolders);
+
+    if (editingId === realIndex) {
         setEditingId(null);
         setNewOriginal('');
         setNewReplacement('');
     }
 };
 
+// --- Computed Data for Render ---
+const activeReplacementsList = useMemo(() => {
+    if (!currentFolderId) return [];
+    const folder = folders.find(f => f.id === currentFolderId);
+    return folder ? folder.replacements : [];
+}, [folders, currentFolderId]);
+
+const filteredSortedReplacements = useMemo(() => {
+    let list = activeReplacementsList.map((item, index) => ({ ...item, realIndex: index }));
+    
+    // Search
+    if (replaceSearch.trim()) {
+        const q = replaceSearch.toLowerCase();
+        list = list.filter(item => 
+            item.original.toLowerCase().includes(q) || 
+            item.replacement.toLowerCase().includes(q)
+        );
+    }
+
+    // Sort (Since user adds to end, 'Newest' means higher index if we consider push order.
+    // Assuming standard array order is Oldest -> Newest)
+    if (replaceSortDesc) {
+        list.reverse(); 
+    }
+
+    return list;
+}, [activeReplacementsList, replaceSearch, replaceSortDesc]);
+
+
 // --- Global Cleaner Logic (Admin) ---
 const handleExecuteCleaner = async () => {
     if (!newCleanerWord.trim()) {
-        Alert.alert('تنبيه', 'يرجى إدخال الكلمة المراد حذفها');
+        Alert.alert('تنبيه', 'يرجى إدخال النص المراد حذفه');
         return;
     }
 
     Alert.alert(
         "تأكيد الحذف الشامل",
-        `سيتم حذف "${newCleanerWord}" من جميع الفصول في السيرفر. هذه العملية لا يمكن التراجع عنها.`,
+        `سيتم حذف أي فقرة أو نص مطابق لما أدخلته من جميع الفصول في السيرفر.`,
         [
             { text: "إلغاء", style: "cancel" },
             { 
@@ -219,11 +373,11 @@ const handleExecuteCleaner = async () => {
                     try {
                         if (cleanerEditingId !== null) {
                             // Edit existing cleaner word (update logic)
-                            await api.put(`/api/admin/cleaner/${cleanerEditingId}`, { word: newCleanerWord.trim() });
+                            await api.put(`/api/admin/cleaner/${cleanerEditingId}`, { word: newCleanerWord }); // No trim to preserve newlines if meant
                             setCleanerEditingId(null);
                         } else {
                             // Add new cleaner word
-                            await api.post('/api/admin/cleaner', { word: newCleanerWord.trim() });
+                            await api.post('/api/admin/cleaner', { word: newCleanerWord });
                         }
                         
                         setNewCleanerWord('');
@@ -244,11 +398,11 @@ const handleExecuteCleaner = async () => {
 
 const handleEditCleaner = (item, index) => {
     setNewCleanerWord(item);
-    setCleanerEditingId(index); // Using index as ID for simplicity if array string, but backend handles updates via array index or value
+    setCleanerEditingId(index);
 };
 
 const handleDeleteCleaner = async (item) => {
-    Alert.alert("حذف", "هل تريد إزالة هذه الكلمة من قائمة الحذف التلقائي؟ (لن تعود الكلمات المحذوفة سابقاً)", [
+    Alert.alert("حذف", "هل تريد إزالة هذا النص من القائمة؟ (لن تعود النصوص المحذوفة سابقاً)", [
         { text: "إلغاء" },
         { 
             text: "حذف", 
@@ -267,11 +421,14 @@ const handleDeleteCleaner = async (item) => {
     ]);
 };
 
+// --- Content Processing ---
 const getProcessedContent = useMemo(() => {
     if (!chapter || !chapter.content) return '';
     let content = chapter.content;
     
-    replacements.forEach(rep => {
+    // Apply Active Folder Replacements
+    // Note: We use activeReplacementsList (raw order) for consistent processing
+    activeReplacementsList.forEach(rep => {
         if (rep.original && rep.replacement) {
             const escapedOriginal = rep.original.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
             const regex = new RegExp(escapedOriginal, 'g');
@@ -279,7 +436,7 @@ const getProcessedContent = useMemo(() => {
         }
     });
     return content;
-}, [chapter, replacements]);
+}, [chapter, activeReplacementsList]);
 
 // --- Progress & API ---
 const updateProgressOnServer = async (currentChapter) => {
@@ -296,15 +453,6 @@ const updateProgressOnServer = async (currentChapter) => {
   } catch (error) {
     console.error("Failed to update progress on server");
   }
-};
-
-const fetchCommentCount = async () => {
-    try {
-        const res = await api.get(`/api/novels/${novelId}/comments?chapterNumber=${chapterId}`);
-        setCommentCount(res.data.totalComments || 0);
-    } catch (e) {
-        console.log("Failed to fetch comment count");
-    }
 };
 
 const fetchChapter = async () => {
@@ -325,6 +473,15 @@ const fetchChapter = async () => {
         Alert.alert("خطأ", "فشل تحميل الفصل");
     } finally {
         setLoading(false);
+    }
+};
+
+const fetchCommentCount = async () => {
+    try {
+        const res = await api.get(`/api/novels/${novelId}/comments?chapterNumber=${chapterId}`);
+        setCommentCount(res.data.totalComments || 0);
+    } catch (e) {
+        console.log("Failed to fetch comment count");
     }
 };
 
@@ -349,23 +506,6 @@ const toggleMenu = useCallback(() => {
   });
 }, [drawerMode]);
 
-useEffect(() => {
-  if (Platform.OS === 'web') {
-    const handleMessage = (event) => {
-      if (event.data === 'toggleMenu') {
-        toggleMenu();
-      } else if (event.data === 'openComments') {
-          setShowComments(true);
-      } else if (event.data === 'openProfile' && authorProfile) {
-          navigation.push('UserProfile', { userId: authorProfile._id });
-      }
-    };
-     
-    window.addEventListener('message', handleMessage);
-    return () => window.removeEventListener('message', handleMessage);
-  }
-}, [toggleMenu, authorProfile]);
-
 // --- Drawer Logic ---
 const openLeftDrawer = () => {
     setDrawerMode('chapters');
@@ -378,6 +518,10 @@ const openLeftDrawer = () => {
 const openRightDrawer = (mode) => { // 'replacements' or 'cleaner'
     setShowSettings(false);
     setDrawerMode(mode);
+    // If opening replacements, ensure we are in the right view mode based on history
+    if (mode === 'replacements' && !currentFolderId) {
+        setReplacementViewMode('folders');
+    }
     Animated.parallel([
         Animated.timing(slideAnimRight, { toValue: 0, duration: 300, useNativeDriver: true }),
         Animated.timing(backdropAnim, { toValue: 1, duration: 300, useNativeDriver: true })
@@ -411,17 +555,6 @@ const sortedChapters = useMemo(() => {
 const [isAscending, setIsAscending] = useState(true);
 const toggleSort = () => {
     setIsAscending(!isAscending);
-};
-
-const onMessage = (event) => {
-  const data = event.nativeEvent.data;
-  if (data === 'toggleMenu') {
-    toggleMenu();
-  } else if (data === 'openComments') {
-      setShowComments(true);
-  } else if (data === 'openProfile' && authorProfile) {
-      navigation.push('UserProfile', { userId: authorProfile._id });
-  }
 };
 
 const navigateChapter = (targetId) => {
@@ -573,64 +706,80 @@ return `
 `;
 };
 
-const renderChapterItem = ({ item }) => {
-    const isCurrent = parseInt(item.number) === parseInt(chapterId);
-    return (
-        <TouchableOpacity 
-            style={[styles.drawerItem, isCurrent && styles.drawerItemActive]} 
-            onPress={() => navigateChapter(item.number)}
-        >
-            <View style={{flex: 1}}>
-                <Text style={[styles.drawerItemTitle, isCurrent && styles.drawerItemTextActive]} numberOfLines={1}>{item.title || `فصل ${item.number}`}</Text>
-                <Text style={styles.drawerItemSubtitle}>فصل {item.number}</Text>
-            </View>
-            {isCurrent && <Ionicons name="eye" size={16} color="#4a7cc7" />}
-        </TouchableOpacity>
-    );
+const onMessage = (event) => {
+    if (event && event.nativeEvent && event.nativeEvent.data) {
+        const msg = event.nativeEvent.data;
+        if (msg === 'toggleMenu') {
+            toggleMenu();
+        } else if (msg === 'openComments') {
+            setShowComments(true);
+        } else if (msg === 'openProfile') {
+            if (authorProfile) {
+                navigation.push('UserProfile', { userId: authorProfile._id });
+            }
+        }
+    }
 };
 
+const renderFolderItem = ({ item }) => (
+    <TouchableOpacity style={styles.drawerItem} onPress={() => openFolder(item.id)}>
+        <View style={{flexDirection: 'row', alignItems: 'center'}}>
+            <Ionicons name="folder" size={20} color="#4a7cc7" style={{marginLeft: 10}} />
+            <Text style={styles.drawerItemTitle}>{item.name}</Text>
+        </View>
+        <View style={{flexDirection: 'row', alignItems: 'center'}}>
+            <Text style={{color: '#666', fontSize: 12, marginRight: 10}}>{item.replacements.length} كلمة</Text>
+            <TouchableOpacity onPress={() => deleteFolder(item.id)} style={{padding: 5}}>
+                <Ionicons name="trash-outline" size={18} color="#ff4444" />
+            </TouchableOpacity>
+        </View>
+    </TouchableOpacity>
+);
+
 const renderReplacementItem = ({ item, index }) => (
-    <View style={styles.replacementItem}>
+    <TouchableOpacity style={styles.replacementItem} onPress={() => handleEditReplacement(item, index)}>
         <View style={styles.replacementInfo}>
-            <Text style={styles.replacementText}>
-                <Text style={{color: '#888'}}>من: </Text>
-                {item.original}
-            </Text>
-            <Ionicons name="arrow-down" size={14} color="#555" style={{marginVertical: 2}} />
-            <Text style={styles.replacementText}>
-                <Text style={{color: '#4a7cc7'}}>إلى: </Text>
-                {item.replacement}
-            </Text>
+            <Text style={[styles.replacementText, {color: '#888', fontSize: 12, marginBottom: 2}]}>{item.original}</Text>
+            <Ionicons name="arrow-down" size={12} color="#4a7cc7" style={{marginVertical: 2}} />
+            <Text style={[styles.replacementText, {fontWeight: 'bold', color: '#fff'}]}>{item.replacement}</Text>
         </View>
         <View style={styles.replacementActions}>
-            <TouchableOpacity onPress={() => handleEditReplacement(index)} style={styles.actionBtn}>
-                <Ionicons name="pencil" size={18} color="#4a7cc7" />
-            </TouchableOpacity>
             <TouchableOpacity onPress={() => handleDeleteReplacement(index)} style={styles.actionBtn}>
-                <Ionicons name="trash" size={18} color="#c74a4a" />
+                <Ionicons name="trash-outline" size={18} color="#ff4444" />
             </TouchableOpacity>
         </View>
-    </View>
+    </TouchableOpacity>
 );
 
 const renderCleanerItem = ({ item, index }) => (
     <View style={styles.replacementItem}>
         <View style={styles.replacementInfo}>
-            <Text style={styles.replacementText}>
-                <Text style={{color: '#ff4444'}}>حذف: </Text>
-                {item}
-            </Text>
+            <Text style={[styles.replacementText, {color: '#ccc', textAlign: 'right'}]} numberOfLines={2}>{item}</Text>
         </View>
         <View style={styles.replacementActions}>
             <TouchableOpacity onPress={() => handleEditCleaner(item, index)} style={styles.actionBtn}>
-                <Ionicons name="pencil" size={18} color="#4a7cc7" />
+                <Ionicons name="create-outline" size={18} color="#4a7cc7" />
             </TouchableOpacity>
             <TouchableOpacity onPress={() => handleDeleteCleaner(item)} style={styles.actionBtn}>
-                <Ionicons name="trash" size={18} color="#c74a4a" />
+                <Ionicons name="trash-outline" size={18} color="#ff4444" />
             </TouchableOpacity>
         </View>
     </View>
 );
+
+const renderChapterItem = ({ item }) => {
+    return (
+        <TouchableOpacity 
+            style={[styles.drawerItem, item.number == chapterId && styles.drawerItemActive]} 
+            onPress={() => navigateChapter(item.number)}
+        >
+            <Text style={[styles.drawerItemTitle, item.number == chapterId && styles.drawerItemTextActive]}>
+                {item.title || `فصل ${item.number}`}
+            </Text>
+            <Text style={styles.drawerItemSubtitle}>{item.number}</Text>
+        </TouchableOpacity>
+    );
+};
 
 if (loading) {
 return (
@@ -724,21 +873,46 @@ return (
       renderAndroidContent()
   )}
 
-  {/* Bottom Bar */}
+  {/* Bottom Bar - Redesigned V2 */}
   <Animated.View style={[styles.bottomBar, { opacity: fadeAnim, paddingBottom: Math.max(insets.bottom, 20), transform: [{ translateY: fadeAnim.interpolate({ inputRange: [0, 1], outputRange: [100, 0] }) }] }]} pointerEvents={showMenu ? 'auto' : 'none'}>
     <View style={styles.bottomBarContent}>
-      <View style={styles.leftControls}>
-          <TouchableOpacity onPress={openLeftDrawer} style={styles.iconButton}><Ionicons name="list" size={26} color="#fff" /></TouchableOpacity>
-          <TouchableOpacity onPress={() => { setSettingsView('main'); setShowSettings(true); }} style={styles.iconButton}><Ionicons name="settings-outline" size={26} color="#fff" /></TouchableOpacity>
+      
+      {/* Row 1: Icons */}
+      <View style={styles.topIconsRow}>
+          {/* Menu - Top Left */}
+          <TouchableOpacity onPress={openLeftDrawer} style={styles.circleIconBtn}>
+              <Ionicons name="list" size={24} color="#fff" />
+          </TouchableOpacity>
+
+          {/* Settings - Top Right */}
+          <TouchableOpacity onPress={() => { setSettingsView('main'); setShowSettings(true); }} style={styles.circleIconBtn}>
+              <Ionicons name="settings-outline" size={24} color="#fff" />
+          </TouchableOpacity>
       </View>
+
+      {/* Row 2: Navigation Buttons */}
       <View style={styles.navigationGroup}>
-        <TouchableOpacity style={[styles.navButton, { opacity: chapterId <= 1 ? 0.4 : 1 }]} disabled={chapterId <= 1} onPress={() => navigateNextPrev(-1)}>
-          <Ionicons name="chevron-forward" size={20} color="#fff" /><Text style={styles.navText}>السابق</Text>
+        {/* Previous - Left - Dark Gray */}
+        <TouchableOpacity 
+            style={[styles.navButton, styles.prevButton, { opacity: chapterId <= 1 ? 0.5 : 1 }]} 
+            disabled={chapterId <= 1} 
+            onPress={() => navigateNextPrev(-1)}
+        >
+          <Ionicons name="chevron-forward" size={20} color="#fff" />
+          <Text style={styles.prevText}>السابق</Text>
         </TouchableOpacity>
-        <TouchableOpacity style={[styles.navButton, styles.nextButton, { opacity: (realTotalChapters > 0 && chapterId >= realTotalChapters) ? 0.4 : 1 }]} disabled={realTotalChapters > 0 && chapterId >= realTotalChapters} onPress={() => navigateNextPrev(1)}>
-          <Text style={[styles.navText, { color: '#000' }]}>التالي</Text><Ionicons name="chevron-back" size={20} color="#000" />
+
+        {/* Next - Right - White */}
+        <TouchableOpacity 
+            style={[styles.navButton, styles.nextButton, { opacity: (realTotalChapters > 0 && chapterId >= realTotalChapters) ? 0.5 : 1 }]} 
+            disabled={realTotalChapters > 0 && chapterId >= realTotalChapters} 
+            onPress={() => navigateNextPrev(1)}
+        >
+          <Text style={styles.nextText}>التالي</Text>
+          <Ionicons name="chevron-back" size={20} color="#000" />
         </TouchableOpacity>
       </View>
+
     </View>
   </Animated.View>
 
@@ -761,45 +935,115 @@ return (
           <Animated.View style={[styles.drawerContent, { right: 0, borderLeftWidth: 1, borderLeftColor: '#333', paddingTop: insets.top + 20, paddingBottom: insets.bottom + 20, transform: [{ translateX: slideAnimRight }] }]}>
               {drawerMode === 'replacements' && (
                   <>
-                      <View style={styles.drawerHeader}>
-                          <Text style={styles.drawerTitle}>استبدال الكلمات</Text>
-                          <TouchableOpacity onPress={closeDrawers}><Ionicons name="close" size={24} color="#888" /></TouchableOpacity>
-                      </View>
-                      
-                      <View style={styles.inputContainer}>
-                         <View style={styles.inputRow}>
-                            <TextInput 
-                                style={styles.textInput} 
-                                placeholder="الكلمة الأصلية" 
-                                placeholderTextColor="#666" 
-                                value={newOriginal}
-                                onChangeText={setNewOriginal}
-                            />
-                            <Ionicons name="arrow-down" size={20} color="#444" />
-                            <TextInput 
-                                style={styles.textInput} 
-                                placeholder="الكلمة البديلة" 
-                                placeholderTextColor="#666"
-                                value={newReplacement}
-                                onChangeText={setNewReplacement}
-                            />
-                         </View>
-                         <TouchableOpacity style={styles.addButton} onPress={handleAddReplacement}>
-                             <Text style={styles.addButtonText}>{editingId !== null ? "تحديث الكلمة" : "إضافة استبدال"}</Text>
-                             <Ionicons name={editingId !== null ? "save-outline" : "add-circle-outline"} size={20} color="#fff" />
-                         </TouchableOpacity>
-                      </View>
+                      {/* VIEW: FOLDERS LIST */}
+                      {replacementViewMode === 'folders' && (
+                          <>
+                              <View style={styles.drawerHeader}>
+                                  <Text style={styles.drawerTitle}>مجلدات الاستبدال</Text>
+                                  <TouchableOpacity onPress={closeDrawers}><Ionicons name="close" size={24} color="#888" /></TouchableOpacity>
+                              </View>
+                              
+                              <View style={styles.inputContainer}>
+                                  <TouchableOpacity 
+                                    style={styles.addButton} 
+                                    onPress={() => {
+                                        setNewFolderName(novel.title || '');
+                                        setShowFolderModal(true);
+                                    }}
+                                  >
+                                      <Text style={styles.addButtonText}>إضافة مجلد جديد</Text>
+                                      <Ionicons name="add-circle-outline" size={20} color="#fff" />
+                                  </TouchableOpacity>
+                              </View>
 
-                      <Text style={styles.listLabel}>الكلمات المستبدلة ({replacements.length})</Text>
-                      <FlatList 
-                        data={replacements} 
-                        keyExtractor={(_, index) => index.toString()} 
-                        renderItem={renderReplacementItem} 
-                        contentContainerStyle={styles.drawerList} 
-                        showsVerticalScrollIndicator={true} 
-                        indicatorStyle="white"
-                        ListEmptyComponent={<Text style={styles.emptyText}>لا توجد استبدالات حالياً</Text>}
-                      />
+                              <Text style={styles.listLabel}>المجلدات ({folders.length})</Text>
+                              <FlatList 
+                                data={folders} 
+                                keyExtractor={(item) => item.id} 
+                                renderItem={renderFolderItem} 
+                                contentContainerStyle={styles.drawerList} 
+                                showsVerticalScrollIndicator={true} 
+                                indicatorStyle="white"
+                                ListEmptyComponent={<Text style={styles.emptyText}>لا توجد مجلدات</Text>}
+                              />
+                          </>
+                      )}
+
+                      {/* VIEW: REPLACEMENT ITEMS */}
+                      {replacementViewMode === 'list' && (
+                          <>
+                              <View style={styles.drawerHeader}>
+                                  <View style={{flexDirection: 'row', alignItems: 'center', gap: 10}}>
+                                      <TouchableOpacity onPress={backToFolders}>
+                                          <Ionicons name="arrow-back" size={24} color="#fff" />
+                                      </TouchableOpacity>
+                                      <Text style={styles.drawerTitle}>
+                                          {folders.find(f => f.id === currentFolderId)?.name || 'كلمات'}
+                                      </Text>
+                                  </View>
+                                  <View style={{flexDirection: 'row', alignItems: 'center', gap: 10}}>
+                                      <TouchableOpacity onPress={toggleSortOrder} style={styles.sortButton}>
+                                          <Ionicons name={replaceSortDesc ? "arrow-up" : "arrow-down"} size={18} color="#4a7cc7" />
+                                      </TouchableOpacity>
+                                      <TouchableOpacity onPress={closeDrawers}><Ionicons name="close" size={24} color="#888" /></TouchableOpacity>
+                                  </View>
+                              </View>
+                              
+                              {/* Search Bar */}
+                              <View style={{paddingHorizontal: 15, marginBottom: 10}}>
+                                  <View style={styles.searchBar}>
+                                      <Ionicons name="search" size={16} color="#666" />
+                                      <TextInput 
+                                          style={styles.searchInput}
+                                          placeholder="بحث في الكلمات..."
+                                          placeholderTextColor="#666"
+                                          value={replaceSearch}
+                                          onChangeText={setReplaceSearch}
+                                      />
+                                      {replaceSearch.length > 0 && (
+                                          <TouchableOpacity onPress={() => setReplaceSearch('')}>
+                                              <Ionicons name="close-circle" size={16} color="#666" />
+                                          </TouchableOpacity>
+                                      )}
+                                  </View>
+                              </View>
+
+                              <View style={styles.inputContainer}>
+                                 <View style={styles.inputRow}>
+                                    <TextInput 
+                                        style={styles.textInput} 
+                                        placeholder="الكلمة الأصلية" 
+                                        placeholderTextColor="#666" 
+                                        value={newOriginal}
+                                        onChangeText={setNewOriginal}
+                                    />
+                                    <Ionicons name="arrow-down" size={20} color="#444" />
+                                    <TextInput 
+                                        style={styles.textInput} 
+                                        placeholder="الكلمة البديلة" 
+                                        placeholderTextColor="#666"
+                                        value={newReplacement}
+                                        onChangeText={setNewReplacement}
+                                    />
+                                 </View>
+                                 <TouchableOpacity style={styles.addButton} onPress={handleAddReplacement}>
+                                     <Text style={styles.addButtonText}>{editingId !== null ? "تحديث الكلمة" : "إضافة استبدال"}</Text>
+                                     <Ionicons name={editingId !== null ? "save-outline" : "add-circle-outline"} size={20} color="#fff" />
+                                 </TouchableOpacity>
+                              </View>
+
+                              <Text style={styles.listLabel}>الكلمات المستبدلة ({filteredSortedReplacements.length})</Text>
+                              <FlatList 
+                                data={filteredSortedReplacements} 
+                                keyExtractor={(item) => item.realIndex.toString()} 
+                                renderItem={({ item }) => renderReplacementItem({ item, index: item.realIndex })} 
+                                contentContainerStyle={styles.drawerList} 
+                                showsVerticalScrollIndicator={true} 
+                                indicatorStyle="white"
+                                ListEmptyComponent={<Text style={styles.emptyText}>لا توجد استبدالات</Text>}
+                              />
+                          </>
+                      )}
                   </>
               )}
 
@@ -813,18 +1057,20 @@ return (
                       <View style={styles.alertBox}>
                           <Ionicons name="warning" size={20} color="#ff4444" />
                           <Text style={styles.alertText}>
-                              سيتم حذف هذه الكلمة من جميع الفصول في السيرفر فوراً.
+                              سيتم حذف هذه الجملة أو أي فقرة تحتوي عليها من جميع الفصول.
                           </Text>
                       </View>
                       
                       <View style={styles.inputContainer}>
                          <View style={styles.inputRow}>
                             <TextInput 
-                                style={[styles.textInput, {width: '100%'}]} 
-                                placeholder="النص المراد حذفه نهائياً" 
+                                style={[styles.textInput, {width: '100%', height: 120, textAlignVertical: 'top'}]} 
+                                placeholder="الصق النص أو الجملة المراد حذفها هنا..." 
                                 placeholderTextColor="#666" 
                                 value={newCleanerWord}
                                 onChangeText={setNewCleanerWord}
+                                multiline={true}
+                                numberOfLines={4}
                             />
                          </View>
                          <TouchableOpacity style={[styles.addButton, {backgroundColor: '#b91c1c'}]} onPress={handleExecuteCleaner} disabled={cleaningLoading}>
@@ -852,6 +1098,31 @@ return (
           </Animated.View>
       </View>
   )}
+
+  {/* Folder Name Modal */}
+  <Modal visible={showFolderModal} transparent animationType="fade" onRequestClose={() => setShowFolderModal(false)}>
+      <View style={styles.modalOverlay}>
+          <View style={styles.modalContent}>
+              <Text style={styles.modalTitle}>اسم المجلد</Text>
+              <TextInput 
+                  style={styles.modalInput} 
+                  placeholder="اسم الرواية" 
+                  placeholderTextColor="#666"
+                  value={newFolderName}
+                  onChangeText={setNewFolderName}
+                  textAlign="right"
+              />
+              <View style={styles.modalButtons}>
+                  <TouchableOpacity style={[styles.modalBtn, {backgroundColor: '#333'}]} onPress={() => setShowFolderModal(false)}>
+                      <Text style={styles.modalBtnText}>إلغاء</Text>
+                  </TouchableOpacity>
+                  <TouchableOpacity style={[styles.modalBtn, {backgroundColor: '#4a7cc7'}]} onPress={handleCreateFolder}>
+                      <Text style={styles.modalBtnText}>تم</Text>
+                  </TouchableOpacity>
+              </View>
+          </View>
+      </View>
+  </Modal>
 
   {/* Comments Modal */}
   <Modal visible={showComments} transparent animationType="slide" onRequestClose={() => setShowComments(false)}>
@@ -973,13 +1244,16 @@ headerInfo: { flex: 1, alignItems: 'flex-end', marginRight: 15 },
 headerTitle: { color: '#fff', fontWeight: 'bold', fontSize: 17 },
 headerSubtitle: { color: '#999', fontSize: 13 },
 bottomBar: { position: 'absolute', bottom: 0, left: 0, right: 0, backgroundColor: 'rgba(15,15,15,0.97)', zIndex: 10 },
-bottomBarContent: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', paddingHorizontal: 20, paddingTop: 15 },
-leftControls: { flexDirection: 'row', gap: 12 },
-navigationGroup: { flexDirection: 'row', gap: 12 },
-navButton: { paddingVertical: 10, paddingHorizontal: 18, backgroundColor: '#333', borderRadius: 20, flexDirection: 'row', alignItems: 'center', gap: 5 },
+bottomBarContent: { flexDirection: 'column', paddingHorizontal: 20, paddingTop: 15, gap: 15 },
+topIconsRow: { flexDirection: 'row', justifyContent: 'space-between', width: '100%' },
+circleIconBtn: { width: 40, height: 40, borderRadius: 20, backgroundColor: 'rgba(255,255,255,0.1)', alignItems: 'center', justifyContent: 'center' },
+navigationGroup: { flexDirection: 'row', justifyContent: 'space-between', width: '100%', gap: 15 },
+navButton: { flex: 1, flexDirection: 'row', alignItems: 'center', paddingVertical: 12, paddingHorizontal: 20, borderRadius: 12, gap: 5, justifyContent: 'center' },
+prevButton: { backgroundColor: '#1a1a1a' },
 nextButton: { backgroundColor: '#fff' },
-navText: { color: '#fff', fontWeight: 'bold', fontSize: 15 },
-modalOverlay: { flex: 1, backgroundColor: 'rgba(0,0,0,0.6)', justifyContent: 'flex-end' },
+prevText: { color: '#fff', fontWeight: 'bold', fontSize: 16 },
+nextText: { color: '#000', fontWeight: 'bold', fontSize: 16 },
+modalOverlay: { flex: 1, backgroundColor: 'rgba(0,0,0,0.6)', justifyContent: 'flex-end', alignItems: 'center' },
 settingsSheet: { backgroundColor: '#1a1a1a', borderTopLeftRadius: 25, borderTopRightRadius: 25, paddingHorizontal: 20, paddingBottom: 40, alignSelf: 'stretch', minHeight: 400 },
 settingsHandle: { width: 40, height: 5, backgroundColor: '#444', borderRadius: 3, alignSelf: 'center', marginVertical: 12 },
 settingsHeader: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 20 },
@@ -1009,7 +1283,7 @@ drawerHeader: { flexDirection: 'row', justifyContent: 'space-between', alignItem
 drawerTitle: { color: '#fff', fontSize: 16, fontWeight: 'bold' },
 sortButton: { padding: 5, backgroundColor: 'rgba(74, 124, 199, 0.1)', borderRadius: 8 },
 drawerList: { paddingHorizontal: 10 },
-drawerItem: { flexDirection: 'row-reverse', alignItems: 'center', paddingVertical: 14, paddingHorizontal: 10, borderBottomWidth: 1, borderBottomColor: '#222' },
+drawerItem: { flexDirection: 'row-reverse', alignItems: 'center', paddingVertical: 14, paddingHorizontal: 10, borderBottomWidth: 1, borderBottomColor: '#222', justifyContent: 'space-between' },
 drawerItemActive: { backgroundColor: 'rgba(74, 124, 199, 0.15)', borderRadius: 8, borderBottomColor: 'transparent', borderWidth: 1, borderColor: 'rgba(74, 124, 199, 0.3)' },
 drawerItemTitle: { color: '#ccc', fontSize: 14, textAlign: 'right', marginBottom: 2 },
 drawerItemTextActive: { color: '#4a7cc7', fontWeight: 'bold' },
@@ -1037,6 +1311,15 @@ replacementActions: { flexDirection: 'column', gap: 8, paddingRight: 10, borderR
 actionBtn: { padding: 5 },
 emptyText: { color: '#555', textAlign: 'center', marginTop: 50, fontSize: 14 },
 alertBox: { backgroundColor: 'rgba(255, 68, 68, 0.1)', borderColor: '#ff4444', borderWidth: 1, borderRadius: 8, padding: 10, flexDirection: 'row-reverse', gap: 10, margin: 15, alignItems: 'center' },
-alertText: { color: '#ff4444', fontSize: 12, flex: 1, textAlign: 'right' }
+alertText: { color: '#ff4444', fontSize: 12, flex: 1, textAlign: 'right' },
+// Modal specific
+modalContent: { width: '80%', backgroundColor: '#1a1a1a', borderRadius: 12, padding: 20, alignItems: 'center', borderWidth: 1, borderColor: '#333' },
+modalTitle: { color: '#fff', fontSize: 18, fontWeight: 'bold', marginBottom: 15 },
+modalInput: { width: '100%', backgroundColor: '#222', color: '#fff', borderRadius: 8, padding: 12, textAlign: 'right', marginBottom: 20, borderWidth: 1, borderColor: '#333' },
+modalButtons: { flexDirection: 'row', gap: 10, width: '100%' },
+modalBtn: { flex: 1, padding: 12, borderRadius: 8, alignItems: 'center', justifyContent: 'center' },
+modalBtnText: { color: '#fff', fontWeight: 'bold' },
+// Search
+searchBar: { flexDirection: 'row-reverse', alignItems: 'center', backgroundColor: '#222', borderRadius: 8, paddingHorizontal: 10, paddingVertical: 8, gap: 5, borderWidth: 1, borderColor: '#333' },
+searchInput: { flex: 1, color: '#fff', textAlign: 'right', fontSize: 14 }
 });
-    
