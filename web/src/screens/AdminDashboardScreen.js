@@ -282,7 +282,8 @@ export default function AdminDashboardScreen({ route, navigation }) {
   };
 
   const commonCategories = ['شيانشيا', 'شوانهوان', 'وشيا', 'أكشن', 'رومانسي', 'نظام', 'حريم', 'مغامرات', 'خيال', 'دراما'];
-  const statusOptions = ['مستمرة', 'مكتملة', 'متوقفة'];
+  // 🔥 أضفنا الحالة "خاصة" هنا
+  const statusOptions = ['مستمرة', 'مكتملة', 'متوقفة', 'خاصة'];
 
   return (
     <SafeAreaView style={styles.container} edges={['top']}>
@@ -328,15 +329,33 @@ export default function AdminDashboardScreen({ route, navigation }) {
                 <TextInput style={[styles.input, {fontSize: 10}]} value={cover} onChangeText={setCover} placeholder="أو رابط مباشر..." placeholderTextColor="#444" />
                 <Text style={styles.label}>اسم الرواية</Text>
                 <TextInput style={styles.input} value={title} onChangeText={setTitle} placeholder="اسم الرواية" placeholderTextColor="#444" />
+                
                 <Text style={styles.label}>حالة الرواية</Text>
                 <View style={styles.statusRow}>
                     {statusOptions.map(opt => (
-                        <TouchableOpacity key={opt} style={[styles.statusBtn, status === opt && { borderColor: opt === 'مكتملة' ? '#4ade80' : opt === 'متوقفة' ? '#ff4444' : '#9b4ac7', backgroundColor: 'rgba(255,255,255,0.05)' }]} onPress={() => setStatus(opt)}>
-                            <View style={[styles.radio, status === opt && { backgroundColor: opt === 'مكتملة' ? '#4ade80' : opt === 'متوقفة' ? '#ff4444' : '#9b4ac7' }]} />
+                        <TouchableOpacity 
+                            key={opt} 
+                            style={[
+                                styles.statusBtn, 
+                                status === opt && { 
+                                    borderColor: opt === 'مكتملة' ? '#4ade80' : opt === 'متوقفة' ? '#ff4444' : opt === 'خاصة' ? '#f59e0b' : '#9b4ac7', 
+                                    backgroundColor: 'rgba(255,255,255,0.05)' 
+                                }
+                            ]} 
+                            onPress={() => setStatus(opt)}
+                        >
+                            <View style={[
+                                styles.radio, 
+                                status === opt && { 
+                                    backgroundColor: opt === 'مكتملة' ? '#4ade80' : opt === 'متوقفة' ? '#ff4444' : opt === 'خاصة' ? '#f59e0b' : '#9b4ac7' 
+                                }
+                            ]} />
                             <Text style={{color: '#fff'}}>{opt}</Text>
                         </TouchableOpacity>
                     ))}
                 </View>
+                {status === 'خاصة' && <Text style={{color: '#f59e0b', fontSize: 11, textAlign: 'right', marginTop: -5}}>* لن تظهر هذه الرواية للقراء حتى تقوم بتغيير الحالة</Text>}
+
                 <Text style={styles.label}>التصنيفات</Text>
                 <View style={styles.tagsContainer}>
                     {commonCategories.map(cat => (
@@ -523,8 +542,8 @@ const styles = StyleSheet.create({
   selectedTagsRow: { flexDirection: 'row', flexWrap: 'wrap', gap: 8, marginTop: 10 },
   selectedTag: { flexDirection: 'row', alignItems: 'center', backgroundColor: '#222', paddingHorizontal: 12, paddingVertical: 6, borderRadius: 15, gap: 5, borderWidth: 1, borderColor: '#444' },
   selectedTagText: { color: '#fff', fontSize: 12 },
-  statusRow: { flexDirection: 'row', gap: 10 },
-  statusBtn: { flex: 1, flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 8, padding: 12, borderRadius: 8, borderWidth: 1, borderColor: '#333', backgroundColor: '#111' },
+  statusRow: { flexDirection: 'row', gap: 10, flexWrap: 'wrap', justifyContent: 'flex-end' },
+  statusBtn: { flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 8, padding: 12, borderRadius: 8, borderWidth: 1, borderColor: '#333', backgroundColor: '#111', minWidth: '30%' },
   radio: { width: 12, height: 12, borderRadius: 6, backgroundColor: '#333' },
   submitBtn: { backgroundColor: '#fff', padding: 15, borderRadius: 8, alignItems: 'center', marginTop: 20 },
   submitText: { color: '#000', fontWeight: 'bold', fontSize: 16 },
