@@ -1,5 +1,4 @@
 
-
 import React, { useContext, useEffect, useState } from 'react';
 import {
   View,
@@ -29,15 +28,13 @@ export default function AdminMainScreen({ navigation }) {
 
   const fetchStats = async () => {
       try {
-          // This is a mock/simple fetch. In real app, you'd have a specific dashboard stats endpoint.
-          // Reusing existing endpoints to get rough numbers
           const usersRes = await api.get('/api/admin/users');
           const novelsRes = await api.get('/api/novels?limit=1'); 
           
           setStats({
               users: usersRes.data.length,
               novels: novelsRes.data.totalNovels || 0,
-              views: '---' // Requires backend aggregation
+              views: '---' 
           });
       } catch (e) {
           console.log(e);
@@ -111,10 +108,18 @@ export default function AdminMainScreen({ navigation }) {
 
             <View style={styles.grid}>
                 
-                {/* 🔥 NEW CARD FOR AUTO SCRAPER */}
+                {/* 🔥 NEW CARD FOR TRANSLATOR AI */}
+                <DashboardCard 
+                    title="المترجم الذكي (AI)" 
+                    subtitle="إدارة الترجمة الآلية، المفاتيح، المسرد"
+                    icon="language" 
+                    color="#06b6d4" // Cyan
+                    onPress={() => navigation.navigate('TranslatorHub')}
+                />
+
                 <DashboardCard 
                     title="الاستيراد الآلي (Scraper)" 
-                    subtitle="سحب الروايات من موقع نادي الروايات"
+                    subtitle="سحب الروايات من المواقع الخارجية"
                     icon="planet" 
                     color="#8b5cf6" 
                     onPress={() => navigation.navigate('AutoImport')}
@@ -124,7 +129,7 @@ export default function AdminMainScreen({ navigation }) {
                     title="النشر المتعدد (Bulk)" 
                     subtitle="رفع ملف ZIP يحتوي على الفصول"
                     icon="cloud-upload" 
-                    color="#f59e0b" // لون برتقالي مميز
+                    color="#f59e0b" 
                     onPress={() => navigation.navigate('BulkUpload')}
                 />
 
