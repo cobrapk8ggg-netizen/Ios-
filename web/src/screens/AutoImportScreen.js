@@ -79,13 +79,14 @@ export default function AutoImportScreen({ navigation }) {
   };
 
   const handleImport = async () => {
-      // ✅ تم تعديل الشرط هنا ليدعم الموقعين بالإضافة إلى مركز الروايات
+      // ✅ تم تعديل الشرط هنا ليدعم الموقع الجديد Novel Fire
       const isRewayat = url.includes('rewayat.club');
       const isArNovel = url.includes('ar-no.com');
       const isMarkaz = url.includes('markazriwayat.com');
+      const isNovelFire = url.includes('novelfire.net');
 
-      if (!isRewayat && !isArNovel && !isMarkaz) {
-          showToast("الرابط يجب أن يكون من نادي الروايات، Ar-Novel، أو مركز الروايات", "error");
+      if (!isRewayat && !isArNovel && !isMarkaz && !isNovelFire) {
+          showToast("الرابط غير مدعوم! المواقع المدعومة: نادي الروايات، Ar-Novel، مركز الروايات، Novel Fire", "error");
           return;
       }
 
@@ -174,7 +175,7 @@ export default function AutoImportScreen({ navigation }) {
 
       <View style={styles.content}>
         <View style={styles.inputContainer}>
-            <Text style={styles.label}>رابط الرواية (نادي الروايات، Ar-Novel، مركز الروايات)</Text>
+            <Text style={styles.label}>روابط المواقع المدعومة (نادي الروايات، Ar-Novel، مركز الروايات، Novel Fire)</Text>
             <View style={styles.inputRow}>
                 <TextInput 
                     style={styles.input} 
