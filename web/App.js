@@ -1,5 +1,4 @@
 
-
 import React, { useContext, useEffect } from 'react';
 import { NavigationContainer, DarkTheme } from '@react-navigation/native';
 import { createBottomTabNavigator } from '@react-navigation/bottom-tabs';
@@ -10,7 +9,7 @@ import { View, ActivityIndicator } from 'react-native';
 import * as Linking from 'expo-linking';
 
 import { AuthProvider, AuthContext } from './src/context/AuthContext';
-import { ToastProvider } from './src/context/ToastContext'; // Import ToastProvider
+import { ToastProvider } from './src/context/ToastContext';
 
 import HomeScreen from './src/screens/HomeScreen';
 import LibraryScreen from './src/screens/LibraryScreen';
@@ -23,9 +22,16 @@ import LoginScreen from './src/screens/LoginScreen';
 import AdminDashboardScreen from './src/screens/AdminDashboardScreen';
 import ManagementScreen from './src/screens/ManagementScreen'; 
 import UsersManagementScreen from './src/screens/UsersManagementScreen'; 
-import AdminMainScreen from './src/screens/AdminMainScreen'; // New Import
-import BulkUploadScreen from './src/screens/BulkUploadScreen'; // New Import for Bulk Upload
-import AutoImportScreen from './src/screens/AutoImportScreen'; // 🔥 NEW IMPORT
+import AdminMainScreen from './src/screens/AdminMainScreen';
+import BulkUploadScreen from './src/screens/BulkUploadScreen';
+import AutoImportScreen from './src/screens/AutoImportScreen';
+
+// --- NEW TRANSLATOR SCREENS ---
+import TranslatorHubScreen from './src/screens/TranslatorHubScreen';
+import EnglishNovelsSelectionScreen from './src/screens/EnglishNovelsSelectionScreen';
+import TranslationJobDetailScreen from './src/screens/TranslationJobDetailScreen';
+import GlossaryManagerScreen from './src/screens/GlossaryManagerScreen';
+import TranslatorSettingsScreen from './src/screens/TranslatorSettingsScreen';
 
 const Tab = createBottomTabNavigator();
 const Stack = createNativeStackNavigator();
@@ -160,6 +166,14 @@ function NavigationRoot() {
             <Stack.Screen name="AdminMain" component={AdminMainScreen} options={{ animation: 'fade_from_bottom' }} />
             <Stack.Screen name="BulkUpload" component={BulkUploadScreen} options={{ animation: 'slide_from_bottom' }} />
             <Stack.Screen name="AutoImport" component={AutoImportScreen} options={{ animation: 'slide_from_bottom' }} /> 
+            
+            {/* 🔥 NEW TRANSLATOR ROUTES 🔥 */}
+            <Stack.Screen name="TranslatorHub" component={TranslatorHubScreen} options={{ animation: 'slide_from_right' }} />
+            <Stack.Screen name="EnglishNovelsSelection" component={EnglishNovelsSelectionScreen} options={{ animation: 'slide_from_bottom' }} />
+            <Stack.Screen name="TranslationJobDetail" component={TranslationJobDetailScreen} options={{ animation: 'fade_from_bottom' }} />
+            <Stack.Screen name="GlossaryManager" component={GlossaryManagerScreen} options={{ animation: 'slide_from_right' }} />
+            <Stack.Screen name="TranslatorSettings" component={TranslatorSettingsScreen} options={{ animation: 'slide_from_right' }} />
+
             <Stack.Screen 
               name="UserProfile" 
               component={ProfileScreen} 
