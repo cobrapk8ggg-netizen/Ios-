@@ -1,3 +1,4 @@
+
 import React, { useState, useCallback, useContext } from 'react';
 import {
   View,
@@ -7,17 +8,30 @@ import {
   TouchableOpacity,
   ActivityIndicator,
   Alert,
-  Dimensions
+  Dimensions,
+  StatusBar,
+  ImageBackground
 } from 'react-native';
 import { Image } from 'expo-image';
 import { Ionicons } from '@expo/vector-icons';
 import { SafeAreaView } from 'react-native-safe-area-context';
+import { LinearGradient } from 'expo-linear-gradient';
 import { useFocusEffect } from '@react-navigation/native';
 import api from '../services/api';
 import { AuthContext } from '../context/AuthContext';
 import { useToast } from '../context/ToastContext';
 
-const { width } = Dimensions.get('window');
+// Standard Glass Card
+const GlassCard = ({ children, style, onPress }) => (
+    <TouchableOpacity 
+        style={[styles.glassCard, style]} 
+        onPress={onPress}
+        activeOpacity={0.9}
+        disabled={!onPress}
+    >
+        {children}
+    </TouchableOpacity>
+);
 
 export default function ManagementScreen({ navigation }) {
   const { userInfo } = useContext(AuthContext);
@@ -34,7 +48,6 @@ export default function ManagementScreen({ navigation }) {
   const fetchMyNovels = async () => {
     setLoading(true);
     try {
-      // Fetch user stats which includes myWorks
       const res = await api.get('/api/user/stats');
       setNovels(res.data.myWorks || []);
     } catch (e) {
@@ -58,7 +71,7 @@ export default function ManagementScreen({ navigation }) {
             try {
               await api.delete(`/api/admin/novels/${novelId}`);
               showToast("تم الحذف بنجاح", "success");
-              fetchMyNovels(); // Refresh list
+              fetchMyNovels();
             } catch (e) {
               showToast("فشل الحذف", "error");
             }
@@ -69,178 +82,146 @@ export default function ManagementScreen({ navigation }) {
   };
 
   const renderItem = ({ item }) => (
-    <View style={styles.card}>
-      <Image 
-        source={item.cover} 
-        style={styles.cover} 
-        contentFit="cover"
-        cachePolicy="memory-disk"
-      />
-      <View style={styles.info}>
-        <Text style={styles.title} numberOfLines={1}>{item.title}</Text>
-        <View style={styles.statsRow}>
-            <Text style={styles.statText}>{item.chaptersCount || (item.chapters?.length || 0)} فصل</Text>
-            <Text style={styles.statText}>•</Text>
-            <Text style={styles.statText}>{item.views || 0} مشاهدة</Text>
-        </View>
-        <View style={styles.actions}>
-            <TouchableOpacity 
-                style={[styles.actionBtn, styles.editBtn]} 
-                onPress={() => navigation.navigate('AdminDashboard', { editNovel: item })}
-            >
-                <Ionicons name="create-outline" size={16} color="#fff" />
-                <Text style={styles.btnText}>تعديل</Text>
-            </TouchableOpacity>
+    <GlassCard style={styles.card}>
+      <View style={{ flexDirection: 'row-reverse', alignItems: 'center', padding: 12 }}>
+          <Image 
+            source={item.cover} 
+            style={styles.cover} 
+            contentFit="cover"
+            cachePolicy="memory-disk"
+          />
+          <View style={styles.info}>
+            <Text style={styles.title} numberOfLines={1}>{item.title}</Text>
+            <View style={styles.statsRow}>
+                <Text style={styles.statText}>{item.chaptersCount || (item.chapters?.length || 0)} فصل</Text>
+                <Text style={styles.statText}>•</Text>
+                <Text style={styles.statText}>{item.views || 0} مشاهدة</Text>
+            </View>
+            <View style={styles.actions}>
+                <TouchableOpacity 
+                    style={[styles.actionBtn, styles.editBtn]} 
+                    onPress={() => navigation.navigate('AdminDashboard', { editNovel: item })}
+                >
+                    <Ionicons name="create-outline" size={16} color="#fff" />
+                    <Text style={styles.btnText}>تعديل</Text>
+                </TouchableOpacity>
 
-            <TouchableOpacity 
-                style={[styles.actionBtn, styles.addBtn]}
-                onPress={() => navigation.navigate('AdminDashboard', { 
-                    addChapterMode: { 
-                        novelId: item._id, 
-                        nextNumber: (item.chapters ? item.chapters.length + 1 : 1).toString(),
-                        novelTitle: item.title
-                    } 
-                })}
-            >
-                <Ionicons name="add-circle-outline" size={16} color="#fff" />
-                <Text style={styles.btnText}>فصل</Text>
-            </TouchableOpacity>
+                <TouchableOpacity 
+                    style={[styles.actionBtn, styles.addBtn]}
+                    onPress={() => navigation.navigate('AdminDashboard', { 
+                        addChapterMode: { 
+                            novelId: item._id, 
+                            nextNumber: (item.chapters ? item.chapters.length + 1 : 1).toString(),
+                            novelTitle: item.title
+                        } 
+                    })}
+                >
+                    <Ionicons name="add-circle-outline" size={16} color="#fff" />
+                    <Text style={styles.btnText}>فصل</Text>
+                </TouchableOpacity>
 
-            <TouchableOpacity 
-                style={[styles.actionBtn, styles.deleteBtn]}
-                onPress={() => handleDelete(item._id)}
-            >
-                <Ionicons name="trash-outline" size={16} color="#fff" />
-            </TouchableOpacity>
-        </View>
+                <TouchableOpacity 
+                    style={[styles.actionBtn, styles.deleteBtn]}
+                    onPress={() => handleDelete(item._id)}
+                >
+                    <Ionicons name="trash-outline" size={16} color="#ff4444" />
+                </TouchableOpacity>
+            </View>
+          </View>
       </View>
-    </View>
+    </GlassCard>
   );
 
   return (
-    <SafeAreaView style={styles.container} edges={['top']}>
-      <View style={styles.header}>
-        <TouchableOpacity onPress={() => navigation.goBack()} style={styles.backBtn}>
-            <Ionicons name="arrow-forward" size={24} color="#fff" />
-        </TouchableOpacity>
-        <Text style={styles.headerTitle}>أعمالي</Text>
-        <TouchableOpacity 
-            style={styles.addNovelBtn}
-            onPress={() => navigation.navigate('AdminDashboard')}
-        >
-            <Ionicons name="add" size={24} color="#fff" />
-        </TouchableOpacity>
-      </View>
-
-      {loading ? (
-        <View style={styles.centered}>
-          <ActivityIndicator size="large" color="#4a7cc7" />
+    <View style={styles.container}>
+      <StatusBar barStyle="light-content" />
+      <ImageBackground 
+        source={require('../../assets/adaptive-icon.png')} 
+        style={styles.bgImage}
+        blurRadius={20}
+      >
+          <LinearGradient colors={['rgba(0,0,0,0.6)', '#000000']} style={StyleSheet.absoluteFill} />
+      </ImageBackground>
+      
+      <SafeAreaView style={{flex: 1}} edges={['top']}>
+        <View style={styles.header}>
+            <TouchableOpacity onPress={() => navigation.goBack()} style={styles.backBtn}>
+                <Ionicons name="arrow-forward" size={24} color="#fff" />
+            </TouchableOpacity>
+            <Text style={styles.headerTitle}>أعمالي</Text>
+            <TouchableOpacity 
+                style={styles.addNovelBtn}
+                onPress={() => navigation.navigate('AdminDashboard')}
+            >
+                <Ionicons name="add" size={24} color="#fff" />
+            </TouchableOpacity>
         </View>
-      ) : (
-        <FlatList
-          data={novels}
-          keyExtractor={item => item._id}
-          renderItem={renderItem}
-          contentContainerStyle={styles.listContent}
-          ListEmptyComponent={
+
+        {loading ? (
             <View style={styles.centered}>
-                <Text style={styles.emptyText}>لم تقم بنشر أي أعمال بعد.</Text>
-                <TouchableOpacity 
-                    style={styles.ctaButton}
-                    onPress={() => navigation.navigate('AdminDashboard')}
-                >
-                    <Text style={styles.ctaText}>نشر عمل جديد</Text>
-                </TouchableOpacity>
+                <ActivityIndicator size="large" color="#fff" />
             </View>
-          }
-        />
-      )}
-    </SafeAreaView>
+        ) : (
+            <FlatList
+                data={novels}
+                keyExtractor={item => item._id}
+                renderItem={renderItem}
+                contentContainerStyle={styles.listContent}
+                ListEmptyComponent={
+                    <View style={styles.centered}>
+                        <Text style={styles.emptyText}>لم تقم بنشر أي أعمال بعد.</Text>
+                    </View>
+                }
+            />
+        )}
+      </SafeAreaView>
+    </View>
   );
 }
 
 const styles = StyleSheet.create({
   container: { flex: 1, backgroundColor: '#000' },
-  header: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'center',
-    padding: 15,
-    borderBottomWidth: 1,
-    borderBottomColor: '#222'
-  },
-  headerTitle: {
-    fontSize: 18,
-    fontWeight: 'bold',
-    color: '#fff'
-  },
-  backBtn: { padding: 5 },
+  bgImage: { ...StyleSheet.absoluteFillObject },
+  header: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', padding: 20 },
+  headerTitle: { fontSize: 20, fontWeight: 'bold', color: '#fff' },
+  backBtn: { padding: 10, backgroundColor: 'rgba(255,255,255,0.1)', borderRadius: 12 },
+  
+  // Glassy Button
   addNovelBtn: { 
-      backgroundColor: '#4a7cc7', 
-      borderRadius: 20, 
-      width: 40, 
-      height: 40, 
-      justifyContent: 'center', 
-      alignItems: 'center' 
+      backgroundColor: 'rgba(255,255,255,0.1)', 
+      borderRadius: 12, width: 44, height: 44, 
+      justifyContent: 'center', alignItems: 'center',
+      borderWidth: 1, borderColor: 'rgba(255,255,255,0.2)'
   },
+  
   listContent: { padding: 15 },
-  card: {
-    flexDirection: 'row-reverse',
-    backgroundColor: '#161616',
-    borderRadius: 12,
-    marginBottom: 15,
-    padding: 10,
-    alignItems: 'center',
-    borderWidth: 1,
-    borderColor: '#2a2a2a'
+  
+  // Glass Card Style
+  glassCard: {
+      backgroundColor: 'rgba(20, 20, 20, 0.75)',
+      borderRadius: 16,
+      overflow: 'hidden',
+      borderWidth: 1,
+      borderColor: 'rgba(255,255,255,0.1)',
+      marginBottom: 15
   },
-  cover: {
-    width: 70,
-    height: 100,
-    borderRadius: 8,
-    marginLeft: 15,
-    backgroundColor: '#333'
-  },
-  info: {
-    flex: 1,
-    alignItems: 'flex-end'
-  },
-  title: {
-    color: '#fff',
-    fontSize: 16,
-    fontWeight: 'bold',
-    marginBottom: 5,
-    textAlign: 'right'
-  },
-  statsRow: {
-      flexDirection: 'row-reverse',
-      gap: 5,
-      marginBottom: 10
-  },
-  statText: {
-      color: '#888',
-      fontSize: 12
-  },
-  actions: {
-      flexDirection: 'row-reverse',
-      gap: 10,
-      width: '100%'
-  },
-  actionBtn: {
-      flexDirection: 'row-reverse',
-      alignItems: 'center',
-      paddingVertical: 6,
-      paddingHorizontal: 12,
-      borderRadius: 8,
-      gap: 5
-  },
-  editBtn: { backgroundColor: '#333' },
-  addBtn: { backgroundColor: '#4a7cc7' },
-  deleteBtn: { backgroundColor: '#ff4444', paddingHorizontal: 8 },
+  
+  cover: { width: 70, height: 100, borderRadius: 8, marginLeft: 15, backgroundColor: '#333' },
+  info: { flex: 1, alignItems: 'flex-end' },
+  title: { color: '#fff', fontSize: 16, fontWeight: 'bold', marginBottom: 5, textAlign: 'right' },
+  statsRow: { flexDirection: 'row-reverse', gap: 5, marginBottom: 10 },
+  statText: { color: '#888', fontSize: 12 },
+  
+  actions: { flexDirection: 'row-reverse', gap: 10, width: '100%' },
+  actionBtn: { flexDirection: 'row-reverse', alignItems: 'center', paddingVertical: 8, paddingHorizontal: 12, borderRadius: 8, gap: 5, borderWidth: 1 },
+  
+  // Glassy Action Buttons
+  editBtn: { backgroundColor: 'rgba(255,255,255,0.05)', borderColor: 'rgba(255,255,255,0.2)' },
+  addBtn: { backgroundColor: 'rgba(255,255,255,0.05)', borderColor: 'rgba(255,255,255,0.2)' },
+  deleteBtn: { backgroundColor: 'rgba(255, 68, 68, 0.1)', borderColor: '#ff4444', paddingHorizontal: 10 },
+  
   btnText: { color: '#fff', fontSize: 12, fontWeight: '600' },
   
   centered: { flex: 1, justifyContent: 'center', alignItems: 'center', marginTop: 50 },
-  emptyText: { color: '#666', fontSize: 16, marginBottom: 20 },
-  ctaButton: { backgroundColor: '#4a7cc7', paddingHorizontal: 20, paddingVertical: 10, borderRadius: 20 },
-  ctaText: { color: '#fff', fontWeight: 'bold' }
+  emptyText: { color: '#666', fontSize: 16 }
 });
