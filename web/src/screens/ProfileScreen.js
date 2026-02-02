@@ -62,9 +62,21 @@ export default function ProfileScreen({ navigation, route }) {
       totalViews: 0,
       joinDate: ''
   });
+
+  // Data Lists & Pagination
+  const [myWorks, setMyWorks] = useState([]);
   const [favorites, setFavorites] = useState([]);
   const [history, setHistory] = useState([]);
-  const [myWorks, setMyWorks] = useState([]);
+
+  const [worksPage, setWorksPage] = useState(1);
+  const [favoritesPage, setFavoritesPage] = useState(1);
+  const [historyPage, setHistoryPage] = useState(1);
+
+  const [hasMoreWorks, setHasMoreWorks] = useState(true);
+  const [hasMoreFavorites, setHasMoreFavorites] = useState(true);
+  const [hasMoreHistory, setHasMoreHistory] = useState(true);
+
+  const [loadingMore, setLoadingMore] = useState(false);
   
   // Settings Modal State
   const [showSettings, setShowSettings] = useState(false);
@@ -88,6 +100,7 @@ export default function ProfileScreen({ navigation, route }) {
       }, [userInfo, targetUserId, targetUserEmail])
   );
 
+  // 🔥 Main Fetch: Gets User Info + Stats + First page of Works
   const fetchProfileData = async (forceLoading = false) => {
       // Only show full spinner if it's the first load or explicit refresh
       if (forceLoading || (!profileUser && loading)) {
@@ -96,9 +109,9 @@ export default function ProfileScreen({ navigation, route }) {
 
       try {
           // Construct Query Params
-          let queryParams = '';
-          if (targetUserId) queryParams = `?userId=${targetUserId}`;
-          else if (targetUserEmail) queryParams = `?email=${targetUserEmail}`;
+          let queryParams = '?page=1&limit=20'; // Reset pagination on full fetch
+          if (targetUserId) queryParams += `&userId=${targetUserId}`;
+          else if (targetUserEmail) queryParams += `&email=${targetUserEmail}`;
 
           // Fetch Stats & Public Profile Data
           const statsRes = await api.get(`/api/user/stats${queryParams}`);
@@ -107,6 +120,9 @@ export default function ProfileScreen({ navigation, route }) {
           setProfileUser(userData);
 
           setMyWorks(statsRes.data.myWorks || []);
+          setWorksPage(1);
+          setHasMoreWorks((statsRes.data.myWorks || []).length === 20);
+
           setStats({
               readChapters: statsRes.data.readChapters || 0,
               addedChapters: statsRes.data.addedChapters || 0,
@@ -114,18 +130,24 @@ export default function ProfileScreen({ navigation, route }) {
               joinDate: formatDate(userData?.createdAt)
           });
 
-          // Fetch Private Data (Library/Favorites)
-          // Condition: It is Self OR the user has Public History enabled
+          // Fetch Private Data (Library/Favorites) - First Page Only
           const shouldFetchLibrary = isSelf || userData.isHistoryPublic;
           
           if (shouldFetchLibrary) {
-             // Pass userId to API if viewing someone else
              const libQuery = targetUserId ? `&userId=${targetUserId}` : '';
-
-             const historyRes = await api.get(`/api/novel/library?type=history${libQuery}`);
-             const favRes = await api.get(`/api/novel/library?type=favorites${libQuery}`);
-             setHistory(historyRes.data || []);
+             
+             // Fetch Favorites (Page 1)
+             const favRes = await api.get(`/api/novel/library?type=favorites&page=1&limit=20${libQuery}`);
              setFavorites(favRes.data || []);
+             setFavoritesPage(1);
+             setHasMoreFavorites((favRes.data || []).length === 20);
+
+             // Fetch History (Page 1)
+             const historyRes = await api.get(`/api/novel/library?type=history&page=1&limit=20${libQuery}`);
+             setHistory(historyRes.data || []);
+             setHistoryPage(1);
+             setHasMoreHistory((historyRes.data || []).length === 20);
+
           } else {
              setHistory([]); 
              setFavorites([]);
@@ -135,6 +157,64 @@ export default function ProfileScreen({ navigation, route }) {
           console.error("Profile Fetch Error", e);
       } finally {
           setLoading(false);
+      }
+  };
+
+  // 🔥 Load More Data (Pagination)
+  const loadMoreData = async (type) => {
+      if (loadingMore) return;
+      setLoadingMore(true);
+
+      try {
+          let nextPage = 1;
+          let endpoint = '';
+          let params = `limit=20`;
+          if (targetUserId) params += `&userId=${targetUserId}`;
+
+          if (type === 'works') {
+              nextPage = worksPage + 1;
+              endpoint = '/api/user/stats'; // We reuse stats endpoint but it handles works pagination
+              // Note: Stats endpoint sends works in `myWorks` field
+          } else {
+              endpoint = '/api/novel/library';
+              if (type === 'favorites') {
+                  nextPage = favoritesPage + 1;
+                  params += `&type=favorites`;
+              } else {
+                  nextPage = historyPage + 1;
+                  params += `&type=history`;
+              }
+          }
+
+          params += `&page=${nextPage}`;
+          
+          const res = await api.get(`${endpoint}?${params}`);
+          const newData = type === 'works' ? (res.data.myWorks || []) : (res.data || []);
+
+          if (newData.length > 0) {
+              if (type === 'works') {
+                  setMyWorks(prev => [...prev, ...newData]);
+                  setWorksPage(nextPage);
+                  setHasMoreWorks(newData.length === 20);
+              } else if (type === 'favorites') {
+                  setFavorites(prev => [...prev, ...newData]);
+                  setFavoritesPage(nextPage);
+                  setHasMoreFavorites(newData.length === 20);
+              } else {
+                  setHistory(prev => [...prev, ...newData]);
+                  setHistoryPage(nextPage);
+                  setHasMoreHistory(newData.length === 20);
+              }
+          } else {
+              if (type === 'works') setHasMoreWorks(false);
+              else if (type === 'favorites') setHasMoreFavorites(false);
+              else setHasMoreHistory(false);
+          }
+
+      } catch (e) {
+          console.log("Load more error", e);
+      } finally {
+          setLoadingMore(false);
       }
   };
 
@@ -213,15 +293,6 @@ export default function ProfileScreen({ navigation, route }) {
       setShowSettings(true);
   };
 
-  // --- Helpers ---
-  const getStatusColor = (status) => {
-    switch (status) {
-      case 'مكتملة': return '#4ade80';
-      case 'متوقفة': return '#ff4444';
-      default: return '#4a7cc7';
-    }
-  };
-
   // --- Render Components ---
 
   const renderTabButton = (id, label) => (
@@ -246,8 +317,8 @@ export default function ProfileScreen({ navigation, route }) {
       </View>
   );
 
-  // Responsive Grid/List Renderer
-  const renderLibraryStyleGrid = (data, emptyMsg) => {
+  // 🔥 Responsive Grid/List Renderer (With Load More, No Status Badge)
+  const renderLibraryStyleGrid = (data, emptyMsg, type) => {
       if (!data || data.length === 0) {
           return (
               <View style={styles.emptyContainer}>
@@ -257,25 +328,52 @@ export default function ProfileScreen({ navigation, route }) {
           );
       }
 
+      const hasMore = type === 'works' ? hasMoreWorks : hasMoreFavorites;
+
       return (
-          <View style={styles.gridContainer}>
-              {data.map((item, index) => {
-                  const ContainerStyle = isMobile ? styles.mobileCard : styles.tabletCard;
-                  const ImageStyle = isMobile ? styles.mobileImage : styles.tabletImage;
-                  
-                  return (
-                    <TouchableOpacity
-                        key={index}
-                        style={ContainerStyle}
-                        onPress={() => navigation.push('NovelDetail', { 
-                            novel: { ...item, _id: item.novelId || item._id } 
-                        })}
-                        activeOpacity={0.8}
-                    >
-                        {isMobile ? (
-                            // --- MOBILE VIEW ---
-                            <>
-                                <View>
+          <View>
+              <View style={styles.gridContainer}>
+                  {data.map((item, index) => {
+                      const ContainerStyle = isMobile ? styles.mobileCard : styles.tabletCard;
+                      const ImageStyle = isMobile ? styles.mobileImage : styles.tabletImage;
+                      
+                      return (
+                        <TouchableOpacity
+                            key={index}
+                            style={ContainerStyle}
+                            onPress={() => navigation.push('NovelDetail', { 
+                                novel: { ...item, _id: item.novelId || item._id } 
+                            })}
+                            activeOpacity={0.8}
+                        >
+                            {isMobile ? (
+                                // --- MOBILE VIEW ---
+                                <>
+                                    <View>
+                                        <Image 
+                                            source={item.cover} 
+                                            style={ImageStyle}
+                                            contentFit="cover" 
+                                            transition={300}
+                                            cachePolicy="memory-disk"
+                                        />
+                                        {/* ❌ Status Badge Removed Here */}
+                                    </View>
+                                    
+                                    <View style={styles.mobileInfo}>
+                                        <Text style={styles.novelTitle} numberOfLines={2}>{item.title}</Text>
+                                        
+                                        <View style={styles.novelStats}>
+                                            <View style={styles.statBadge}>
+                                                <Text style={styles.statText}>{item.chaptersCount || (item.chapters ? item.chapters.length : 0)} فصل</Text>
+                                                <Ionicons name="book-outline" size={12} color="#888" style={{marginLeft: 4}} />
+                                            </View>
+                                        </View>
+                                    </View>
+                                </>
+                            ) : (
+                                // --- TABLET/LARGE VIEW ---
+                                <>
                                     <Image 
                                         source={item.cover} 
                                         style={ImageStyle}
@@ -283,51 +381,30 @@ export default function ProfileScreen({ navigation, route }) {
                                         transition={300}
                                         cachePolicy="memory-disk"
                                     />
-                                    {/* تصحيح مكان الحالة للشاشات الصغيرة لتكون فوق الصورة */}
-                                    <View style={[styles.statusBadge, { backgroundColor: getStatusColor(item.status), position: 'absolute', top: 5, right: 5 }]}>
-                                        <Text style={styles.statusText}>{item.status || 'مستمرة'}</Text>
-                                    </View>
-                                </View>
-                                
-                                <View style={styles.mobileInfo}>
-                                    <Text style={styles.novelTitle} numberOfLines={2}>{item.title}</Text>
-                                    
-                                    <View style={styles.novelStats}>
-                                        <View style={styles.statBadge}>
-                                            <Text style={styles.statText}>{item.chaptersCount || (item.chapters ? item.chapters.length : 0)} فصل</Text>
-                                            <Ionicons name="book-outline" size={12} color="#888" style={{marginLeft: 4}} />
+                                    {/* ❌ Status Badge Removed Here */}
+                                    <View style={styles.cardInfo}>
+                                        {/* تعديل الخط للشاشات الكبيرة: سطرين وخط أصغر */}
+                                        <Text style={[styles.novelTitle, { fontSize: 11, height: 'auto' }]} numberOfLines={2}>{item.title}</Text>
+                                        <View style={styles.novelStats}>
+                                            <View style={styles.statBadge}>
+                                                <Ionicons name="book-outline" size={12} color="#888" />
+                                                <Text style={styles.statText}>{item.chaptersCount || (item.chapters ? item.chapters.length : 0)} فصل</Text>
+                                            </View>
                                         </View>
                                     </View>
-                                </View>
-                            </>
-                        ) : (
-                            // --- TABLET/LARGE VIEW ---
-                            <>
-                                <Image 
-                                    source={item.cover} 
-                                    style={ImageStyle}
-                                    contentFit="cover" 
-                                    transition={300}
-                                    cachePolicy="memory-disk"
-                                />
-                                <View style={[styles.statusBadge, { backgroundColor: getStatusColor(item.status), position: 'absolute', top: 5, right: 5 }]}>
-                                    <Text style={styles.statusText}>{item.status || 'مستمرة'}</Text>
-                                </View>
-                                <View style={styles.cardInfo}>
-                                    {/* تعديل الخط للشاشات الكبيرة: سطرين وخط أصغر */}
-                                    <Text style={[styles.novelTitle, { fontSize: 11, height: 'auto' }]} numberOfLines={2}>{item.title}</Text>
-                                    <View style={styles.novelStats}>
-                                        <View style={styles.statBadge}>
-                                            <Ionicons name="book-outline" size={12} color="#888" />
-                                            <Text style={styles.statText}>{item.chaptersCount || (item.chapters ? item.chapters.length : 0)} فصل</Text>
-                                        </View>
-                                    </View>
-                                </View>
-                            </>
-                        )}
-                    </TouchableOpacity>
-                  );
-              })}
+                                </>
+                            )}
+                        </TouchableOpacity>
+                      );
+                  })}
+              </View>
+              
+              {/* Load More Button */}
+              {hasMore && (
+                  <TouchableOpacity style={styles.loadMoreButton} onPress={() => loadMoreData(type)} disabled={loadingMore}>
+                      {loadingMore ? <ActivityIndicator color="#fff" size="small" /> : <Text style={styles.loadMoreText}>عرض المزيد</Text>}
+                  </TouchableOpacity>
+              )}
           </View>
       );
   };
@@ -342,40 +419,48 @@ export default function ProfileScreen({ navigation, route }) {
         );
     }
     return (
-        <View style={{ gap: 15 }}>
-            {data.map((item, index) => (
-                <TouchableOpacity 
-                    key={index}
-                    style={styles.historyCard}
-                    activeOpacity={0.8}
-                    onPress={() => navigation.navigate('Reader', { 
-                        novel: { ...item, _id: item.novelId }, 
-                        chapterId: item.lastChapterId 
-                    })}
-                >
-                    <Image 
-                        source={item.cover} 
-                        style={styles.historyImage} 
-                        contentFit="cover"
-                        transition={200}
-                        cachePolicy="memory-disk"
-                    />
-                    <View style={styles.historyContent}>
-                        <Text style={styles.historyTitle} numberOfLines={1}>{item.title}</Text>
-                        
-                        <View style={styles.historyChapterRow}>
-                            <Text style={styles.historyChapterText} numberOfLines={1}>
-                                {item.lastChapterTitle ? `فصل ${item.lastChapterId}: ${item.lastChapterTitle}` : `الفصل ${item.lastChapterId}`}
-                            </Text>
-                        </View>
+        <View>
+            <View style={{ gap: 15 }}>
+                {data.map((item, index) => (
+                    <TouchableOpacity 
+                        key={index}
+                        style={styles.historyCard}
+                        activeOpacity={0.8}
+                        onPress={() => navigation.navigate('Reader', { 
+                            novel: { ...item, _id: item.novelId }, 
+                            chapterId: item.lastChapterId 
+                        })}
+                    >
+                        <Image 
+                            source={item.cover} 
+                            style={styles.historyImage} 
+                            contentFit="cover"
+                            transition={200}
+                            cachePolicy="memory-disk"
+                        />
+                        <View style={styles.historyContent}>
+                            <Text style={styles.historyTitle} numberOfLines={1}>{item.title}</Text>
+                            
+                            <View style={styles.historyChapterRow}>
+                                <Text style={styles.historyChapterText} numberOfLines={1}>
+                                    {item.lastChapterTitle ? `فصل ${item.lastChapterId}: ${item.lastChapterTitle}` : `الفصل ${item.lastChapterId}`}
+                                </Text>
+                            </View>
 
-                        <View style={styles.progressBarBg}>
-                            <View style={[styles.progressBarFill, { width: `${item.progress || 0}%` }]} />
+                            <View style={styles.progressBarBg}>
+                                <View style={[styles.progressBarFill, { width: `${item.progress || 0}%` }]} />
+                            </View>
+                            <Text style={styles.progressText}>{item.progress || 0}% مكتمل</Text>
                         </View>
-                        <Text style={styles.progressText}>{item.progress || 0}% مكتمل</Text>
-                    </View>
-                </TouchableOpacity>
-            ))}
+                    </TouchableOpacity>
+                ))}
+            </View>
+            {/* Load More History */}
+            {hasMoreHistory && (
+                  <TouchableOpacity style={styles.loadMoreButton} onPress={() => loadMoreData('history')} disabled={loadingMore}>
+                      {loadingMore ? <ActivityIndicator color="#fff" size="small" /> : <Text style={styles.loadMoreText}>عرض المزيد</Text>}
+                  </TouchableOpacity>
+            )}
         </View>
     );
   };
@@ -413,9 +498,9 @@ export default function ProfileScreen({ navigation, route }) {
                   </View>
               );
           case 'works':
-              return renderLibraryStyleGrid(myWorks, "لا توجد أعمال منشورة.");
+              return renderLibraryStyleGrid(myWorks, "لا توجد أعمال منشورة.", 'works');
           case 'favorites':
-              return showLibrary ? renderLibraryStyleGrid(favorites, "قائمة المفضلة فارغة.") : null;
+              return showLibrary ? renderLibraryStyleGrid(favorites, "قائمة المفضلة فارغة.", 'favorites') : null;
           case 'history':
               return showLibrary ? renderHistoryList(history, "سجل القراءة فارغ.") : null;
           default:
@@ -832,20 +917,6 @@ const styles = StyleSheet.create({
       height: 220, // ارتفاع متناسب مع العرض 160
       backgroundColor: '#000',
   },
-  statusBadge: {
-      position: 'absolute',
-      top: 8,
-      right: 8,
-      paddingHorizontal: 8,
-      paddingVertical: 4,
-      borderRadius: 6,
-      zIndex: 1,
-  },
-  statusText: {
-      color: '#fff',
-      fontSize: 10,
-      fontWeight: 'bold',
-  },
   cardInfo: {
       padding: 10,
   },
@@ -939,6 +1010,22 @@ const styles = StyleSheet.create({
   emptyText: {
       color: '#444',
       marginTop: 10,
+      fontSize: 14
+  },
+
+  // Load More Button
+  loadMoreButton: {
+      backgroundColor: '#1a1a1a',
+      paddingVertical: 12,
+      borderRadius: 8,
+      alignItems: 'center',
+      marginTop: 20,
+      borderWidth: 1,
+      borderColor: '#333'
+  },
+  loadMoreText: {
+      color: '#4a7cc7',
+      fontWeight: '600',
       fontSize: 14
   },
 
