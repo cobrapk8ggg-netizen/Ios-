@@ -253,7 +253,9 @@ export default function EnglishNovelsSelectionScreen({ navigation }) {
                                             style={[styles.chapItem, selectedChapters.includes(item.number) && styles.chapItemActive]}
                                             onPress={() => toggleChapter(item.number)}
                                         >
-                                            <Text style={[styles.chapText, selectedChapters.includes(item.number) && {color:'#fff'}]}>#{item.number}</Text>
+                                            <Text style={[styles.chapText, selectedChapters.includes(item.number) && {color:'#fff'}]}>
+                                                #{item.number} - {item.title || ''}
+                                            </Text>
                                         </TouchableOpacity>
                                     )}
                                 />
@@ -316,9 +318,9 @@ const styles = StyleSheet.create({
   rangeApplyBtn: { backgroundColor: '#333', borderRadius: 6, paddingHorizontal: 10, justifyContent: 'center' },
   rangeApplyText: { color: '#fff', fontSize: 10 },
 
-  chapItem: { padding: 8, borderBottomWidth: 1, borderColor: '#222', alignItems: 'center' },
+  chapItem: { padding: 8, borderBottomWidth: 1, borderColor: '#222', alignItems: 'flex-end' },
   chapItemActive: { backgroundColor: 'rgba(255, 255, 255, 0.1)' },
-  chapText: { color: '#ccc', fontSize: 12 },
+  chapText: { color: '#ccc', fontSize: 12, textAlign: 'right' },
 
   // Glassy Start Button
   startBtn: { 
