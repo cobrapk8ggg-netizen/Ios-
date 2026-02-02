@@ -2,6 +2,7 @@
 import React from 'react';
 import { Modal, View, Text, TouchableOpacity, StyleSheet, Dimensions } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
+import { LinearGradient } from 'expo-linear-gradient';
 
 const { width } = Dimensions.get('window');
 
@@ -11,30 +12,37 @@ const CustomAlert = ({ visible, title, message, onCancel, onConfirm, confirmText
   return (
     <Modal visible={visible} transparent animationType="fade" onRequestClose={onCancel}>
       <View style={styles.overlay}>
+        {/* Glass Container */}
         <View style={styles.alertBox}>
-          <View style={styles.iconContainer}>
-            <Ionicons 
-                name={type === 'danger' ? "trash-bin" : "alert-circle"} 
-                size={40} 
-                color={type === 'danger' ? "#ff4444" : "#4a7cc7"} 
+            <LinearGradient
+                colors={['rgba(30, 30, 30, 0.95)', 'rgba(10, 10, 10, 0.98)']}
+                style={StyleSheet.absoluteFill}
             />
-          </View>
-          
-          <Text style={styles.title}>{title}</Text>
-          <Text style={styles.message}>{message}</Text>
-
-          <View style={styles.buttonRow}>
-            <TouchableOpacity style={[styles.btn, styles.cancelBtn]} onPress={onCancel}>
-              <Text style={styles.cancelText}>{cancelText}</Text>
-            </TouchableOpacity>
             
-            <TouchableOpacity 
-                style={[styles.btn, styles.confirmBtn, type === 'danger' && {backgroundColor: '#ff4444'}]} 
-                onPress={onConfirm}
-            >
-              <Text style={styles.confirmText}>{confirmText}</Text>
-            </TouchableOpacity>
-          </View>
+            <View style={styles.content}>
+                <View style={styles.iconContainer}>
+                    <Ionicons 
+                        name={type === 'danger' ? "trash-outline" : "alert-circle-outline"} 
+                        size={32} 
+                        color={type === 'danger' ? "#ff4444" : "#fff"} 
+                    />
+                </View>
+                
+                <Text style={styles.title}>{title}</Text>
+                <Text style={styles.message}>{message}</Text>
+
+                <View style={styles.buttonRow}>
+                    <TouchableOpacity style={styles.btn} onPress={onCancel}>
+                        <Text style={styles.cancelText}>{cancelText}</Text>
+                    </TouchableOpacity>
+                    
+                    <View style={styles.divider} />
+
+                    <TouchableOpacity style={styles.btn} onPress={onConfirm}>
+                        <Text style={[styles.confirmText, type === 'danger' && {color: '#ff4444'}]}>{confirmText}</Text>
+                    </TouchableOpacity>
+                </View>
+            </View>
         </View>
       </View>
     </Modal>
@@ -44,71 +52,71 @@ const CustomAlert = ({ visible, title, message, onCancel, onConfirm, confirmText
 const styles = StyleSheet.create({
   overlay: {
     flex: 1,
-    backgroundColor: 'rgba(0,0,0,0.8)',
+    backgroundColor: 'rgba(0,0,0,0.7)', // Darker dim
     justifyContent: 'center',
     alignItems: 'center',
-    padding: 20
+    padding: 40
   },
   alertBox: {
-    width: Math.min(width * 0.85, 400),
-    backgroundColor: '#161616',
+    width: '100%',
+    maxWidth: 320,
     borderRadius: 20,
-    padding: 25,
-    alignItems: 'center',
+    overflow: 'hidden',
     borderWidth: 1,
-    borderColor: '#333',
-    elevation: 10,
-    shadowColor: '#000',
+    borderColor: 'rgba(255,255,255,0.1)',
+    shadowColor: "#000",
     shadowOffset: { width: 0, height: 10 },
-    shadowOpacity: 0.5,
-    shadowRadius: 15
+    shadowOpacity: 0.6,
+    shadowRadius: 20,
+    elevation: 20
+  },
+  content: {
+      alignItems: 'center',
+      paddingTop: 25,
   },
   iconContainer: {
     marginBottom: 15,
-    padding: 15,
-    backgroundColor: 'rgba(255,255,255,0.05)',
-    borderRadius: 50
   },
   title: {
     color: '#fff',
-    fontSize: 18,
+    fontSize: 17,
     fontWeight: 'bold',
-    marginBottom: 10,
+    marginBottom: 8,
     textAlign: 'center'
   },
   message: {
     color: '#ccc',
-    fontSize: 14,
+    fontSize: 13,
     textAlign: 'center',
     marginBottom: 25,
-    lineHeight: 22
+    lineHeight: 20,
+    paddingHorizontal: 20
   },
   buttonRow: {
     flexDirection: 'row',
+    borderTopWidth: 1,
+    borderTopColor: 'rgba(255,255,255,0.1)',
     width: '100%',
-    gap: 15
+    height: 50
   },
   btn: {
     flex: 1,
-    paddingVertical: 12,
-    borderRadius: 12,
     alignItems: 'center',
     justifyContent: 'center'
   },
-  cancelBtn: {
-    backgroundColor: '#222',
-    borderWidth: 1,
-    borderColor: '#333'
-  },
-  confirmBtn: {
-    backgroundColor: '#4a7cc7'
+  divider: {
+      width: 1,
+      height: '100%',
+      backgroundColor: 'rgba(255,255,255,0.1)'
   },
   cancelText: {
     color: '#fff',
-    fontWeight: '600'
+    fontSize: 16,
+    fontWeight: '400'
   },
   confirmText: {
     color: '#fff',
+    fontSize: 16,
     fontWeight: 'bold'
   }
 });
