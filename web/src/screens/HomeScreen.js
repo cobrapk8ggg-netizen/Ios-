@@ -316,10 +316,17 @@ export default function HomeScreen({ navigation }) {
       }
   };
 
-  const markAllRead = () => {
+  const markAllRead = async () => {
+      // Optimistic UI Update
       setUnreadCount(0);
       setNotifications([]);
-      // Ideally, send API call to mark all as read
+      setShowNotifications(false); 
+      
+      try {
+          await api.post('/api/notifications/mark-read');
+      } catch (e) {
+          console.log("Failed to mark all as read");
+      }
   };
 
   const markItemRead = (id) => {
