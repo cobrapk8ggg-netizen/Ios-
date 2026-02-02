@@ -89,14 +89,9 @@ export default function AutoImportScreen({ navigation }) {
   };
 
   const handleImport = async () => {
-      // ✅ تم تعديل الشرط هنا ليدعم الموقع الجديد Novel Fire
-      const isRewayat = url.includes('rewayat.club');
-      const isArNovel = url.includes('ar-no.com');
-      const isMarkaz = url.includes('markazriwayat.com');
-      const isNovelFire = url.includes('novelfire.net');
-
-      if (!isRewayat && !isArNovel && !isMarkaz && !isNovelFire) {
-          showToast("الرابط غير مدعوم! المواقع المدعومة: نادي الروايات، Ar-Novel، مركز الروايات، Novel Fire", "error");
+      // ✅ تم إزالة التحقق من الدومين للسماح بأي رابط
+      if (!url.trim()) {
+          showToast("يرجى إدخال رابط الرواية", "error");
           return;
       }
 
@@ -196,8 +191,8 @@ export default function AutoImportScreen({ navigation }) {
         <View style={styles.content}>
             
             <GlassContainer style={styles.inputBox}>
-                <Text style={styles.label}>روابط المواقع المدعومة</Text>
-                <Text style={styles.subLabel}>(نادي الروايات، Ar-Novel، مركز الروايات، Novel Fire)</Text>
+                <Text style={styles.label}>رابط الرواية</Text>
+                <Text style={styles.subLabel}>(يدعم WuxiaBox, NovelFire, Ar-Novel, وغيرها)</Text>
                 
                 <View style={styles.inputRow}>
                     <TextInput 
