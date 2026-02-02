@@ -1,5 +1,5 @@
 
-import React, { useState, useRef, useEffect, useContext, useMemo } from 'react';
+import React, { useState, useRef, useEffect, useContext, useMemo, useCallback } from 'react';
 import {
   View,
   Text,
@@ -22,10 +22,10 @@ import api, { incrementView } from '../services/api';
 import { useFocusEffect } from '@react-navigation/native';
 import { AuthContext } from '../context/AuthContext';
 import { useToast } from '../context/ToastContext';
-import CommentsSection from '../components/CommentsSection'; // ✨ Import Comments Component
+import CommentsSection from '../components/CommentsSection'; 
 
 const { width, height } = Dimensions.get('window');
-const CHAPTERS_PER_PAGE = 25; // 25 فصلاً لكل صفحة
+const CHAPTERS_PER_PAGE = 25; 
 
 // Format views helper
 const formatNumber = (num) => {
@@ -43,33 +43,43 @@ const getStatusColor = (status) => {
     }
 };
 
+// Global cache for authors to avoid re-fetching across screens
+const authorCache = {};
+
 export default function NovelDetailScreen({ route, navigation }) {
   const { userInfo } = useContext(AuthContext);
   const { showToast } = useToast();
   
+  // 🔥 1. Initialize immediately with passed params (Rocket Speed Start)
   const initialNovelData = route.params.novel || {};
-  
+  const novelId = initialNovelData._id || initialNovelData.id || initialNovelData.novelId;
+
   const [fullNovel, setFullNovel] = useState(initialNovelData);
-  const [authorProfile, setAuthorProfile] = useState(null); 
+  // Author State: Start with cache if available, or null
+  const [authorProfile, setAuthorProfile] = useState(
+      (initialNovelData.authorEmail && authorCache[initialNovelData.authorEmail]) || null
+  );
+  
   const [chapters, setChapters] = useState([]);
-  const [loading, setLoading] = useState(true);
-  const [error, setError] = useState(false);
-  const [activeTab, setActiveTab] = useState('about'); // Default to About
+  
+  // Independent Loading States
+  const [loadingStatus, setLoadingStatus] = useState(true);
+  const [loadingChapters, setLoadingChapters] = useState(true);
+
+  const [activeTab, setActiveTab] = useState('about'); 
   const [isFavorite, setIsFavorite] = useState(false);
   const [lastReadChapterId, setLastReadChapterId] = useState(0); 
-  const [readChapters, setReadChapters] = useState([]); // List of specific read chapters
+  const [readChapters, setReadChapters] = useState([]); 
 
   // Pagination & Sorting State
   const [currentRangeIndex, setCurrentRangeIndex] = useState(0);
   const [isPagePickerVisible, setPagePickerVisible] = useState(false);
-  const [sortDesc, setSortDesc] = useState(false); // Default Ascending (Lowest to Highest)
+  const [sortDesc, setSortDesc] = useState(false); 
 
   // Sort Dropdown Modal
   const [isSortPickerVisible, setSortPickerVisible] = useState(false);
 
   const scrollY = useRef(new Animated.Value(0)).current;
-
-  const novelId = fullNovel._id || fullNovel.id || fullNovel.novelId;
 
   // Check ownership
   const isOwner = userInfo && (
@@ -78,74 +88,97 @@ export default function NovelDetailScreen({ route, navigation }) {
       (!fullNovel.authorEmail && fullNovel.author && fullNovel.author.toLowerCase() === userInfo.name.toLowerCase())
   );
 
-  const fetchDetails = async () => {
-    setLoading(true);
-    setError(false);
-    try {
-      if (!novelId) throw new Error("Novel ID not found");
+  // 🔥 2. Parallel Fetching on Mount
+  useEffect(() => {
+      // A. Fetch Library Status (User specific)
+      fetchLibraryStatus();
 
-      const response = await api.get(`/api/novels/${novelId}`);
-      const novelData = response.data;
-      setFullNovel(prev => ({ ...prev, ...novelData }));
-      setChapters(novelData.chapters || []);
+      // B. Fetch Full Novel Data (Heavy payload - handled separately)
+      fetchFullNovelData();
+  }, [novelId]);
 
-      // Fetch Author Profile Data
-      let query = '';
-      if (novelData.authorEmail) {
-          query = `email=${novelData.authorEmail}`;
-      } else if (novelData.author) {
-          // Legacy support fallback
+  // 🔥 3. Fetch Author whenever authorEmail is available (Effect)
+  useEffect(() => {
+      if (fullNovel.authorEmail) {
+          fetchAuthorData(fullNovel.authorEmail);
       }
+  }, [fullNovel.authorEmail]);
 
-      if (query) {
-          try {
-              const authorRes = await api.get(`/api/user/stats?${query}`);
-              setAuthorProfile(authorRes.data.user);
-          } catch (e) { console.log("Failed to fetch author profile"); }
-      }
-
+  const fetchLibraryStatus = async () => {
+      setLoadingStatus(true);
       try {
         const statusRes = await api.get(`/api/novel/status/${novelId}`);
         if (statusRes.data) {
           setIsFavorite(statusRes.data.isFavorite);
-          const lId = statusRes.data.lastChapterId || 0;
-          setLastReadChapterId(lId);
-          // Store actual read chapters array
+          setLastReadChapterId(statusRes.data.lastChapterId || 0);
           setReadChapters(statusRes.data.readChapters || []);
         }
       } catch (e) {
-         console.log("Status check failed, ignoring");
+         console.log("Status check failed", e.message);
+      } finally {
+          setLoadingStatus(false);
       }
-    } catch (e) {
-      console.error('Error fetching novel details', e);
-      setError(true);
-    } finally {
-      setLoading(false);
-    }
   };
 
-  useFocusEffect(
-    React.useCallback(() => {
-      fetchDetails();
-    }, [novelId])
-  );
+  const fetchAuthorData = async (email) => {
+      if (!email) return;
+      
+      // Check Cache First
+      if (authorCache[email]) {
+          setAuthorProfile(authorCache[email]);
+          return;
+      }
+
+      // Fetch silently (don't block UI)
+      try {
+          const authorRes = await api.get(`/api/user/stats?email=${email}`);
+          const profile = authorRes.data.user;
+          if (profile) {
+              authorCache[email] = profile; // Cache it
+              setAuthorProfile(profile);
+          }
+      } catch (e) { 
+          console.log("Failed to fetch author profile (silent fail)"); 
+      }
+  };
+
+  const fetchFullNovelData = async () => {
+      setLoadingChapters(true);
+      try {
+          const response = await api.get(`/api/novels/${novelId}`);
+          const novelData = response.data;
+          
+          // Merge with existing data to keep UI stable
+          setFullNovel(prev => ({ ...prev, ...novelData }));
+          
+          if (novelData.chapters) {
+              setChapters(novelData.chapters);
+          }
+      } catch (e) {
+          console.error('Error fetching novel details', e);
+          showToast("فشل تحديث بيانات الرواية", "error");
+      } finally {
+          setLoadingChapters(false);
+      }
+  };
 
   // --- Sorting & Pagination Logic ---
   const sortedChapters = useMemo(() => {
       if (!chapters) return [];
+      // Create a shallow copy to sort
       return [...chapters].sort((a, b) => sortDesc ? b.number - a.number : a.number - b.number);
   }, [chapters, sortDesc]);
 
-  // Auto-jump to page logic
+  // Auto-jump to last read page
   useEffect(() => {
-      if (lastReadChapterId > 0 && sortedChapters.length > 0) {
+      if (lastReadChapterId > 0 && sortedChapters.length > 0 && !loadingStatus) {
           const idx = sortedChapters.findIndex(c => c.number === lastReadChapterId);
           if (idx !== -1) {
               const rangeIndex = Math.floor(idx / CHAPTERS_PER_PAGE);
-              // Logic to auto-jump if needed
+              if (rangeIndex !== currentRangeIndex) setCurrentRangeIndex(rangeIndex);
           }
       }
-  }, [sortDesc]); 
+  }, [loadingStatus, sortDesc, chapters.length]); // Only run when data is ready
 
   const totalPages = Math.ceil((sortedChapters.length || 0) / CHAPTERS_PER_PAGE);
   const currentPage = currentRangeIndex + 1;
@@ -170,7 +203,8 @@ export default function NovelDetailScreen({ route, navigation }) {
                     try {
                         await api.delete(`/api/admin/chapters/${novelId}/${chapNum}`);
                         showToast("تم حذف الفصل بنجاح", "success");
-                        fetchDetails();
+                        // Refresh chapters
+                        fetchFullNovelData();
                     } catch (e) {
                         showToast("فشل الحذف", "error");
                     }
@@ -210,7 +244,7 @@ export default function NovelDetailScreen({ route, navigation }) {
   const toggleLibrary = async () => {
     try {
       const newStatus = !isFavorite;
-      setIsFavorite(newStatus);
+      setIsFavorite(newStatus); // Optimistic UI update
       
       setFullNovel(prev => ({
           ...prev,
@@ -229,7 +263,7 @@ export default function NovelDetailScreen({ route, navigation }) {
       else showToast("تم الحذف من المفضلة", "info");
 
     } catch (error) {
-      setIsFavorite(!isFavorite); 
+      setIsFavorite(!isFavorite); // Revert on error
       showToast("فشلت العملية", "error");
     }
   };
@@ -244,13 +278,11 @@ export default function NovelDetailScreen({ route, navigation }) {
   );
 
   const renderChapterItem = ({ item }) => {
-    // Check if THIS specific chapter number is in the read list
     const isRead = readChapters.includes(item.number);
     const dateStr = item.createdAt ? new Date(item.createdAt).toISOString().split('T')[0].replace(/-/g, '/') : '---';
     
     return (
         <View style={styles.chapterRowContainer}>
-            {/* Right Side: Chapter Number Badge (Black) */}
             <TouchableOpacity 
                 style={styles.chapterBadge}
                 onPress={() => {
@@ -262,7 +294,6 @@ export default function NovelDetailScreen({ route, navigation }) {
                 {isRead && <View style={styles.readDot} />}
             </TouchableOpacity>
 
-            {/* Left Side: Details (Aligned Right) */}
             <TouchableOpacity 
               style={styles.chapterInfo}
               onPress={() => {
@@ -278,7 +309,6 @@ export default function NovelDetailScreen({ route, navigation }) {
                 </Text>
             </TouchableOpacity>
 
-             {/* Admin Controls (Fixed Layout) */}
              {isOwner && (
                  <View style={styles.adminControls}>
                      <TouchableOpacity style={styles.adminBtn} onPress={() => handleEditChapter(item)}>
@@ -293,10 +323,11 @@ export default function NovelDetailScreen({ route, navigation }) {
     );
   };
 
-  // Author Widget
+  // Author Widget (Display Immediately)
   const AuthorWidget = () => {
-      const displayName = authorProfile?.name || fullNovel.author || 'غير معروف';
-      const displayAvatar = authorProfile?.picture;
+      // Logic: Use profile data if fetched, otherwise fallback to novel basic data
+      const displayName = authorProfile?.name || fullNovel.author || 'Zeus';
+      const displayAvatar = authorProfile?.picture; // If null, image component handles fallback
       const displayBanner = authorProfile?.banner;
       const targetId = authorProfile?._id;
 
@@ -307,11 +338,10 @@ export default function NovelDetailScreen({ route, navigation }) {
               <TouchableOpacity 
                 style={styles.authorCardContainer}
                 activeOpacity={0.9}
+                disabled={!targetId} // Disable if we don't have ID yet
                 onPress={() => {
                     if (targetId) {
                         navigation.push('UserProfile', { userId: targetId });
-                    } else {
-                        showToast("هذا الناشر ليس لديه ملف شخصي عام", "info");
                     }
                 }}
               >
@@ -331,6 +361,7 @@ export default function NovelDetailScreen({ route, navigation }) {
                             />
                         </View>
                         <Text style={styles.authorDisplayName} numberOfLines={1}>{displayName}</Text>
+                        {!targetId && <Text style={{color: '#888', fontSize: 10, marginTop: 4}}>جاري جلب البيانات...</Text>}
                     </View>
                   </View>
               </TouchableOpacity>
@@ -338,7 +369,6 @@ export default function NovelDetailScreen({ route, navigation }) {
       );
   };
 
-  // Pagination Component
   const renderPagination = () => {
       if (totalPages <= 1) return null;
 
@@ -370,14 +400,6 @@ export default function NovelDetailScreen({ route, navigation }) {
           </View>
       );
   };
-
-  if (!fullNovel || (!fullNovel.title && loading)) {
-      return (
-          <View style={[styles.container, {justifyContent:'center', alignItems:'center'}]}>
-              <ActivityIndicator size="large" color="#4a7cc7" />
-          </View>
-      )
-  }
 
   const allTags = [
     ...(fullNovel.category ? [fullNovel.category] : []),
@@ -434,7 +456,7 @@ export default function NovelDetailScreen({ route, navigation }) {
           
           <View style={styles.statsRow}>
             <View style={styles.statItem}>
-              <Text style={styles.statValue}>{chapters.length || fullNovel.chaptersCount || 0}</Text>
+              <Text style={styles.statValue}>{loadingChapters ? '...' : (chapters.length || fullNovel.chaptersCount || 0)}</Text>
               <Text style={styles.statLabel}>فصل</Text>
             </View>
             <View style={styles.statDivider} />
@@ -450,15 +472,27 @@ export default function NovelDetailScreen({ route, navigation }) {
           </View>
 
           <View style={styles.actionRow}>
+            {/* Library Button */}
             <TouchableOpacity 
               style={[styles.libraryButton, isFavorite && styles.libraryButtonActive]} 
               onPress={toggleLibrary}
+              disabled={loadingStatus}
             >
-              <Ionicons name={isFavorite ? "checkmark" : "add"} size={24} color="#fff" />
+              {loadingStatus ? (
+                  <ActivityIndicator size="small" color="#fff" />
+              ) : (
+                  <Ionicons name={isFavorite ? "checkmark" : "add"} size={24} color="#fff" />
+              )}
             </TouchableOpacity>
+
+            {/* Read Button */}
             <TouchableOpacity 
               style={styles.readButton}
               onPress={() => {
+                if (chapters.length === 0 && loadingChapters) {
+                    showToast("يرجى الانتظار، جاري تحميل الفصول...", "info");
+                    return;
+                }
                 if (chapters.length === 0) {
                     showToast("لا توجد فصول متاحة حالياً", "info");
                     return;
@@ -466,45 +500,36 @@ export default function NovelDetailScreen({ route, navigation }) {
                 const targetChapterNum = lastReadChapterId > 0 && lastReadChapterId < chapters.length 
                     ? lastReadChapterId + 1 
                     : (lastReadChapterId === chapters.length ? lastReadChapterId : 1);
+                
                 incrementView(novelId, targetChapterNum);
                 navigation.navigate('Reader', { novel: fullNovel, chapterId: targetChapterNum })
               }}
             >
-              <Text style={styles.readButtonText}>
-                 {lastReadChapterId > 0 ? 'استئناف القراءة' : 'ابدأ القراءة'}
-              </Text>
-              <Ionicons name="book-outline" size={20} color="#000" style={{ marginLeft: 8 }} />
+              {loadingStatus ? (
+                  <ActivityIndicator color="#000" />
+              ) : (
+                  <>
+                    <Text style={styles.readButtonText}>
+                        {lastReadChapterId > 0 ? 'استئناف القراءة' : 'ابدأ القراءة'}
+                    </Text>
+                    <Ionicons name="book-outline" size={20} color="#000" style={{ marginLeft: 8 }} />
+                  </>
+              )}
             </TouchableOpacity>
           </View>
 
           <View style={styles.tabsContainer}>
-            {renderTabButton('comments', 'التعليقات')} {/* Last */}
+            {renderTabButton('comments', 'التعليقات')} 
             {renderTabButton('chapters', 'الفصول')}
-            {renderTabButton('about', 'نظرة عامة')} {/* First */}
+            {renderTabButton('about', 'نظرة عامة')} 
           </View>
 
-          {error && (
-            <View style={{backgroundColor: 'rgba(255, 68, 68, 0.1)', padding: 10, borderRadius: 8, marginBottom: 10, flexDirection: 'row-reverse', alignItems: 'center'}}>
-                <Ionicons name="alert-circle" size={20} color="#ff4444" style={{marginLeft: 8}} />
-                <Text style={{color: '#ff4444', textAlign: 'right', flex: 1}}>
-                    تعذر تحديث البيانات.
-                </Text>
-                <TouchableOpacity onPress={fetchDetails}>
-                    <Text style={{color: '#fff', textDecorationLine: 'underline'}}>إعادة</Text>
-                </TouchableOpacity>
-            </View>
-          )}
-
-          {/* ✨✨ COMMENTS SECTION TAB ✨✨ */}
-          {activeTab === 'comments' && (
-              <CommentsSection novelId={novelId} user={userInfo} />
-          )}
-
+          {/* About Tab - Prioritize this display */}
           {activeTab === 'about' && (
             <View style={styles.aboutSection}>
               <Text style={styles.sectionTitle}>القصة</Text>
               <Text style={styles.descriptionText}>
-                  {fullNovel.description || 'لا يوجد وصف متاح.'}
+                  {fullNovel.description || 'لا يوجد وصف متاح حالياً.'}
               </Text>
               
               <Text style={styles.sectionTitle}>التصنيفات</Text>
@@ -520,10 +545,17 @@ export default function NovelDetailScreen({ route, navigation }) {
                 ))}
               </View>
 
+              {/* Directly Render Widget without conditional loading blocker */}
               <AuthorWidget />
             </View>
           )} 
           
+          {/* Comments Tab */}
+          {activeTab === 'comments' && (
+              <CommentsSection novelId={novelId} user={userInfo} />
+          )}
+          
+          {/* Chapters Tab - Lazy Render */}
           {activeTab === 'chapters' && (
             <View style={styles.chaptersList}>
                {/* Sort Controls */}
@@ -537,8 +569,11 @@ export default function NovelDetailScreen({ route, navigation }) {
                    </Text>
                </TouchableOpacity>
 
-               {loading && chapters.length === 0 ? (
-                   <ActivityIndicator color="#4a7cc7" style={{marginTop: 20}} />
+               {loadingChapters && chapters.length === 0 ? (
+                   <View style={{marginTop: 50, alignItems: 'center'}}>
+                       <ActivityIndicator color="#4a7cc7" size="large" />
+                       <Text style={{color: '#666', marginTop: 10}}>جاري جلب الفصول...</Text>
+                   </View>
                ) : displayedChapters.length > 0 ? (
                    <>
                        {displayedChapters.map(item => (
@@ -710,8 +745,8 @@ const styles = StyleSheet.create({
   chaptersList: { paddingBottom: 20 },
   sortHeader: { 
       flexDirection: 'row', 
-      justifyContent: 'space-between', // Puts text left, icon right (or vice versa based on direction)
-      alignItems: 'center',
+      justifyContent: 'space-between', 
+      alignItems: 'center', 
       paddingVertical: 10, 
       marginBottom: 5, 
       borderBottomWidth: 1, 
@@ -760,7 +795,7 @@ const styles = StyleSheet.create({
   chapterMeta: { color: '#666', fontSize: 10, textAlign: 'right' },
   textRead: { color: '#888' },
 
-  adminControls: { flexDirection: 'row', gap: 10, marginRight: 5 }, // Fixed layout to ROW
+  adminControls: { flexDirection: 'row', gap: 10, marginRight: 5 }, 
   adminBtn: { padding: 4, backgroundColor: '#1a1a1a', borderRadius: 4, borderWidth: 1, borderColor: '#333' },
   
   authorSection: { marginTop: 30, borderTopWidth: 1, borderColor: '#222', paddingTop: 20 },
