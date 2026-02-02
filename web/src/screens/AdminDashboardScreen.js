@@ -10,29 +10,37 @@ import {
   ActivityIndicator,
   FlatList,
   Modal,
-  Image,
-  Alert
+  ImageBackground,
+  Dimensions,
+  StatusBar
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { SafeAreaView } from 'react-native-safe-area-context';
+import { LinearGradient } from 'expo-linear-gradient';
 import * as ImagePicker from 'expo-image-picker';
-import * as DocumentPicker from 'expo-document-picker'; // Added for Bulk
+import * as DocumentPicker from 'expo-document-picker'; 
 import api from '../services/api';
 import { useToast } from '../context/ToastContext';
 import { AuthContext } from '../context/AuthContext';
 import CustomAlert from '../components/CustomAlert';
 
+// Glass Container Component
+const GlassContainer = ({ children, style }) => (
+    <View style={[styles.glassContainer, style]}>
+        {children}
+    </View>
+);
+
 export default function AdminDashboardScreen({ route, navigation }) {
   const { showToast } = useToast();
   const { userInfo } = useContext(AuthContext);
+  const isAdmin = userInfo?.role === 'admin';
   
   const editNovelData = route.params?.editNovel;
   const editChapterData = route.params?.editChapter; 
   const addChapterMode = route.params?.addChapterMode;
   
   const [activeTab, setActiveTab] = useState((editChapterData || addChapterMode) ? 'chapter_form' : 'novel'); 
-  
-  // Chapter Form Tabs: 'single' | 'bulk'
   const [chapterMode, setChapterMode] = useState('single');
 
   const [loading, setLoading] = useState(false);
@@ -46,6 +54,9 @@ export default function AdminDashboardScreen({ route, navigation }) {
   const [selectedTags, setSelectedTags] = useState(initialTags);
   const [customTag, setCustomTag] = useState('');
   const [status, setStatus] = useState(editNovelData?.status || 'مستمرة');
+
+  // Dynamic Categories
+  const [availableCategories, setAvailableCategories] = useState([]);
 
   const [novelChapters, setNovelChapters] = useState([]);
   const [chaptersLoading, setChaptersLoading] = useState(false);
@@ -69,6 +80,7 @@ export default function AdminDashboardScreen({ route, navigation }) {
   const [alertConfig, setAlertConfig] = useState({});
 
   useEffect(() => {
+    fetchCategories();
     if (!editNovelData) fetchNovels();
     if (editNovelData) {
         fetchNovelChapters(editNovelData._id);
@@ -76,6 +88,16 @@ export default function AdminDashboardScreen({ route, navigation }) {
     }
     if (editChapterData) fetchChapterContent();
   }, []);
+
+  const fetchCategories = async () => {
+      try {
+          const res = await api.get('/api/categories');
+          const cats = res.data.filter(c => c.id !== 'all').map(c => c.name);
+          setAvailableCategories(cats);
+      } catch (e) {
+          setAvailableCategories(['أكشن', 'رومانسي', 'فانتازيا']);
+      }
+  };
 
   const fetchNovelChapters = async (id) => {
       setChaptersLoading(true);
@@ -102,8 +124,7 @@ export default function AdminDashboardScreen({ route, navigation }) {
     try {
         const res = await api.get('/api/novels?limit=100');
         let list = res.data.novels || [];
-        // Filter only user novels if not admin, or even if admin but in "My Works" context
-        if (userInfo) {
+        if (userInfo && userInfo.role !== 'admin') {
             list = list.filter(n => 
                 (n.authorEmail && n.authorEmail === userInfo.email) ||
                 (n.author && n.author.toLowerCase() === userInfo.name.toLowerCase())
@@ -169,7 +190,6 @@ export default function AdminDashboardScreen({ route, navigation }) {
           if (successCount > 0) {
               showToast(`تم نشر ${successCount} فصل بنجاح!`, "success");
               setBulkLogs([`✅ تم إضافة ${successCount} فصل بنجاح.`, ...errors]);
-              // Refresh chapters list logic if applicable
               if (editNovelData) fetchNovelChapters(editNovelData._id);
           } else {
               showToast("لم يتم إضافة أي فصل", "error");
@@ -187,11 +207,49 @@ export default function AdminDashboardScreen({ route, navigation }) {
       else setSelectedTags([...selectedTags, tag]);
   };
 
-  const addCustomTag = () => {
-      if (customTag.trim() && !selectedTags.includes(customTag.trim())) {
-          setSelectedTags([...selectedTags, customTag.trim()]);
-          setCustomTag('');
+  const removeTag = (tagToRemove) => {
+      setSelectedTags(selectedTags.filter(tag => tag !== tagToRemove));
+  };
+
+  const addCustomTag = async () => {
+      if (!customTag.trim()) return;
+      const newTag = customTag.trim();
+
+      if (isAdmin) {
+          try {
+              await api.post('/api/admin/categories', { category: newTag });
+              if (!availableCategories.includes(newTag)) {
+                  setAvailableCategories([...availableCategories, newTag]);
+              }
+              if (!selectedTags.includes(newTag)) setSelectedTags([...selectedTags, newTag]);
+              setCustomTag('');
+              showToast("تم إضافة التصنيف لقاعدة البيانات", "success");
+          } catch(e) {
+              showToast("فشل إضافة التصنيف", "error");
+          }
+      } else {
+          showToast("صلاحية المشرف مطلوبة لإضافة تصنيفات جديدة", "warning");
       }
+  };
+
+  const handleDeleteCategory = (catName) => {
+      setAlertConfig({
+          title: "حذف التصنيف نهائياً",
+          message: `هل أنت متأكد من حذف تصنيف "${catName}" من قاعدة البيانات وجميع الروايات؟`,
+          type: 'danger',
+          onConfirm: async () => {
+              setAlertVisible(false);
+              try {
+                  await api.delete(`/api/admin/categories/${encodeURIComponent(catName)}`);
+                  setAvailableCategories(prev => prev.filter(c => c !== catName));
+                  setSelectedTags(prev => prev.filter(t => t !== catName));
+                  showToast("تم حذف التصنيف نهائياً", "success");
+              } catch(e) {
+                  showToast("فشل الحذف", "error");
+              }
+          }
+      });
+      setAlertVisible(true);
   };
 
   const handleSaveNovel = async () => {
@@ -209,31 +267,6 @@ export default function AdminDashboardScreen({ route, navigation }) {
           }
       } catch (e) { showToast("فشلت العملية", 'error'); } 
       finally { setLoading(false); }
-  };
-
-  const prepareEditChapter = async (chapter) => {
-      setIsEditingChapter(true);
-      setChapterNumber(chapter.number.toString());
-      setChapterTitle(chapter.title);
-      setChapterContent('');
-      setActiveTab('chapter_form');
-      setChapterMode('single'); // Edit is always single
-      try {
-          setLoading(true);
-          const res = await api.get(`/api/novels/${editNovelData._id}/chapters/${chapter.number}`);
-          setChapterContent(res.data.content);
-      } catch (e) { showToast("فشل تحميل محتوى الفصل", "error"); } 
-      finally { setLoading(false); }
-  };
-
-  const prepareAddChapter = () => {
-      setIsEditingChapter(false);
-      const nextNum = novelChapters.length > 0 ? (Math.max(...novelChapters.map(c => c.number)) + 1) : 1;
-      setChapterNumber(nextNum.toString());
-      setChapterTitle('');
-      setChapterContent('');
-      setActiveTab('chapter_form');
-      setChapterMode('single');
   };
 
   const handleSaveChapter = async () => {
@@ -281,12 +314,46 @@ export default function AdminDashboardScreen({ route, navigation }) {
       setAlertVisible(true);
   };
 
-  const commonCategories = ['شيانشيا', 'شوانهوان', 'وشيا', 'أكشن', 'رومانسي', 'نظام', 'حريم', 'مغامرات', 'خيال', 'دراما'];
-  // 🔥 أضفنا الحالة "خاصة" هنا
   const statusOptions = ['مستمرة', 'مكتملة', 'متوقفة', 'خاصة'];
 
+  const prepareEditChapter = async (chapter) => {
+      setIsEditingChapter(true);
+      setChapterNumber(chapter.number.toString());
+      setChapterTitle(chapter.title);
+      setChapterContent('');
+      setActiveTab('chapter_form');
+      setChapterMode('single'); 
+      try {
+          setLoading(true);
+          const res = await api.get(`/api/novels/${editNovelData._id}/chapters/${chapter.number}`);
+          setChapterContent(res.data.content);
+      } catch (e) { showToast("فشل تحميل محتوى الفصل", "error"); } 
+      finally { setLoading(false); }
+  };
+
+  const prepareAddChapter = () => {
+      setIsEditingChapter(false);
+      const nextNum = novelChapters.length > 0 ? (Math.max(...novelChapters.map(c => c.number)) + 1) : 1;
+      setChapterNumber(nextNum.toString());
+      setChapterTitle('');
+      setChapterContent('');
+      setActiveTab('chapter_form');
+      setChapterMode('single');
+  };
+
   return (
-    <SafeAreaView style={styles.container} edges={['top']}>
+    <View style={styles.container}>
+      <StatusBar barStyle="light-content" backgroundColor="transparent" translucent />
+      
+      {/* Background Cover - THE GLASSY BASE */}
+      <ImageBackground 
+        source={cover ? {uri: cover} : require('../../assets/adaptive-icon.png')} 
+        style={styles.bgImage}
+        blurRadius={20}
+      >
+          <LinearGradient colors={['rgba(0,0,0,0.6)', '#000000']} style={StyleSheet.absoluteFill} />
+      </ImageBackground>
+
       <CustomAlert 
         visible={alertVisible}
         title={alertConfig.title}
@@ -296,212 +363,294 @@ export default function AdminDashboardScreen({ route, navigation }) {
         onConfirm={alertConfig.onConfirm}
       />
 
-      <View style={styles.header}>
-        <TouchableOpacity onPress={() => navigation.goBack()}><Ionicons name="close" size={24} color="#fff" /></TouchableOpacity>
-        <Text style={styles.headerTitle}>
-            {editNovelData ? `تعديل: ${editNovelData.title}` : (editChapterData || addChapterMode ? 'إدارة الفصل' : 'إنشاء رواية جديدة')}
-        </Text>
-        <View style={{ width: 24 }} />
-      </View>
-
-      {editNovelData && (
-          <View style={styles.tabs}>
-            <TouchableOpacity style={[styles.tab, activeTab === 'novel' && styles.activeTab]} onPress={() => setActiveTab('novel')}>
-                <Text style={[styles.tabText, activeTab === 'novel' && styles.activeTabText]}>بيانات الرواية</Text>
+      <SafeAreaView style={{flex: 1}} edges={['top']}>
+          {/* Header */}
+          <View style={styles.header}>
+            <TouchableOpacity onPress={() => navigation.goBack()} style={styles.iconBtn}>
+                <Ionicons name="close" size={24} color="#fff" />
             </TouchableOpacity>
-            <TouchableOpacity style={[styles.tab, (activeTab === 'chapters_list' || activeTab === 'chapter_form') && styles.activeTab]} onPress={() => setActiveTab('chapters_list')}>
-                <Text style={[styles.tabText, (activeTab === 'chapters_list' || activeTab === 'chapter_form') && styles.activeTabText]}>فصول الرواية</Text>
-            </TouchableOpacity>
+            <Text style={styles.headerTitle}>
+                {editNovelData ? 'تعديل الرواية' : (editChapterData || addChapterMode ? 'إدارة الفصل' : 'مشروع جديد')}
+            </Text>
+            <View style={{ width: 40 }} />
           </View>
-      )}
 
-      <ScrollView contentContainerStyle={styles.content}>
-        
-        {/* NOVEL DETAILS FORM */}
-        {activeTab === 'novel' && (
-            <View style={styles.form}>
-                <Text style={styles.label}>صورة الغلاف</Text>
-                <TouchableOpacity style={styles.imagePicker} onPress={pickImage}>
-                    {uploadingImage ? <ActivityIndicator color="#4a7cc7" /> : cover ? <Image source={{ uri: cover }} style={styles.previewImage} /> : (
-                        <View style={{alignItems: 'center'}}><Ionicons name="image-outline" size={30} color="#666" /><Text style={{color: '#666', marginTop: 5}}>اضغط لرفع صورة</Text></View>
-                    )}
+          {editNovelData && (
+              <View style={styles.tabContainer}>
+                <TouchableOpacity style={[styles.tab, activeTab === 'novel' && styles.activeTab]} onPress={() => setActiveTab('novel')}>
+                    <Text style={[styles.tabText, activeTab === 'novel' && styles.activeTabText]}>البيانات</Text>
                 </TouchableOpacity>
-                <TextInput style={[styles.input, {fontSize: 10}]} value={cover} onChangeText={setCover} placeholder="أو رابط مباشر..." placeholderTextColor="#444" />
-                <Text style={styles.label}>اسم الرواية</Text>
-                <TextInput style={styles.input} value={title} onChangeText={setTitle} placeholder="اسم الرواية" placeholderTextColor="#444" />
-                
-                <Text style={styles.label}>حالة الرواية</Text>
-                <View style={styles.statusRow}>
-                    {statusOptions.map(opt => (
-                        <TouchableOpacity 
-                            key={opt} 
-                            style={[
-                                styles.statusBtn, 
-                                status === opt && { 
-                                    borderColor: opt === 'مكتملة' ? '#4ade80' : opt === 'متوقفة' ? '#ff4444' : opt === 'خاصة' ? '#f59e0b' : '#9b4ac7', 
-                                    backgroundColor: 'rgba(255,255,255,0.05)' 
-                                }
-                            ]} 
-                            onPress={() => setStatus(opt)}
-                        >
-                            <View style={[
-                                styles.radio, 
-                                status === opt && { 
-                                    backgroundColor: opt === 'مكتملة' ? '#4ade80' : opt === 'متوقفة' ? '#ff4444' : opt === 'خاصة' ? '#f59e0b' : '#9b4ac7' 
-                                }
-                            ]} />
-                            <Text style={{color: '#fff'}}>{opt}</Text>
-                        </TouchableOpacity>
-                    ))}
-                </View>
-                {status === 'خاصة' && <Text style={{color: '#f59e0b', fontSize: 11, textAlign: 'right', marginTop: -5}}>* لن تظهر هذه الرواية للقراء حتى تقوم بتغيير الحالة</Text>}
-
-                <Text style={styles.label}>التصنيفات</Text>
-                <View style={styles.tagsContainer}>
-                    {commonCategories.map(cat => (
-                        <TouchableOpacity key={cat} style={[styles.tagChip, selectedTags.includes(cat) && styles.activeTagChip]} onPress={() => toggleTag(cat)}>
-                            <Text style={{color: selectedTags.includes(cat) ? '#fff' : '#888'}}>{cat}</Text>
-                        </TouchableOpacity>
-                    ))}
-                </View>
-                <View style={styles.addTagRow}>
-                    <TouchableOpacity style={styles.addTagBtn} onPress={addCustomTag}><Ionicons name="add" size={24} color="#fff" /></TouchableOpacity>
-                    <TextInput style={[styles.input, {flex: 1, marginBottom: 0}]} value={customTag} onChangeText={setCustomTag} placeholder="إضافة تصنيف خاص..." placeholderTextColor="#444" />
-                </View>
-                {selectedTags.length > 0 && (
-                    <View style={styles.selectedTagsRow}>
-                        {selectedTags.map(tag => (
-                             <View key={tag} style={styles.selectedTag}><Text style={styles.selectedTagText}>{tag}</Text><TouchableOpacity onPress={() => toggleTag(tag)}><Ionicons name="close" size={14} color="#fff" /></TouchableOpacity></View>
-                        ))}
-                    </View>
-                )}
-                <Text style={styles.label}>الوصف</Text>
-                <TextInput style={[styles.input, {height: 100}]} value={description} onChangeText={setDescription} multiline placeholder="وصف الرواية..." placeholderTextColor="#444" textAlignVertical="top" />
-                <TouchableOpacity style={styles.submitBtn} onPress={handleSaveNovel} disabled={loading}>
-                    {loading ? <ActivityIndicator color="#000" /> : <Text style={styles.submitText}>{editNovelData ? 'حفظ التعديلات' : 'إنشاء الرواية'}</Text>}
+                <TouchableOpacity style={[styles.tab, activeTab !== 'novel' && styles.activeTab]} onPress={() => setActiveTab('chapters_list')}>
+                    <Text style={[styles.tabText, activeTab !== 'novel' && styles.activeTabText]}>الفصول</Text>
                 </TouchableOpacity>
-            </View>
-        )}
+              </View>
+          )}
 
-        {/* CHAPTERS LIST */}
-        {activeTab === 'chapters_list' && (
-             <View style={styles.chapterListSection}>
-                 <TouchableOpacity style={styles.addChapterCta} onPress={prepareAddChapter}>
-                     <Ionicons name="add-circle" size={20} color="#fff" />
-                     <Text style={{color: '#fff', fontWeight: 'bold'}}>إضافة فصل جديد</Text>
-                 </TouchableOpacity>
-                 {chaptersLoading ? <ActivityIndicator size="large" color="#4a7cc7" style={{marginTop: 50}} /> : (
-                     <View style={styles.chapterListContainer}>
-                         {novelChapters.length === 0 ? <Text style={{color: '#666', textAlign: 'center', padding: 20}}>لا توجد فصول لهذه الرواية.</Text> : (
-                             novelChapters.map((chap) => (
-                                 <View key={chap.number} style={styles.chapterListItem}>
-                                     <View style={styles.chapterActions}>
-                                         <TouchableOpacity style={[styles.actionIcon, {backgroundColor: 'rgba(255, 68, 68, 0.1)'}]} onPress={() => handleDeleteChapter(chap.number)}><Ionicons name="trash-outline" size={18} color="#ff4444" /></TouchableOpacity>
-                                         <TouchableOpacity style={[styles.actionIcon, {backgroundColor: 'rgba(74, 124, 199, 0.1)'}]} onPress={() => prepareEditChapter(chap)}><Ionicons name="create-outline" size={18} color="#4a7cc7" /></TouchableOpacity>
-                                     </View>
-                                     <View style={{flex: 1}}><Text style={styles.chapterListTitle}>فصل {chap.number}</Text><Text style={styles.chapterListSubtitle}>{chap.title}</Text></View>
-                                 </View>
-                             ))
-                         )}
-                     </View>
-                 )}
-             </View>
-        )}
-
-        {/* CHAPTER FORM (Merged Single & Bulk) */}
-        {activeTab === 'chapter_form' && (
-            <View style={styles.form}>
-                {editNovelData && (
-                    <TouchableOpacity style={styles.backToListBtn} onPress={() => setActiveTab('chapters_list')}>
-                        <Ionicons name="arrow-forward" size={16} color="#4a7cc7" />
-                        <Text style={{color: '#4a7cc7'}}>العودة للقائمة</Text>
-                    </TouchableOpacity>
-                )}
-
-                {/* Sub-Tabs for Single vs Bulk */}
-                {!isEditingChapter && (
-                    <View style={styles.modeSwitch}>
-                        <TouchableOpacity style={[styles.modeOption, chapterMode === 'single' && styles.activeMode]} onPress={() => setChapterMode('single')}>
-                            <Text style={[styles.modeText, chapterMode === 'single' && styles.activeModeText]}>نشر منفرد</Text>
-                        </TouchableOpacity>
-                        <TouchableOpacity style={[styles.modeOption, chapterMode === 'bulk' && styles.activeMode]} onPress={() => setChapterMode('bulk')}>
-                            <Text style={[styles.modeText, chapterMode === 'bulk' && styles.activeModeText]}>نشر متعدد (ZIP)</Text>
-                        </TouchableOpacity>
-                    </View>
-                )}
-
-                {!editNovelData && !selectedNovelId && (
-                    <>
-                    <Text style={styles.label}>اختر الرواية</Text>
-                    <TouchableOpacity style={styles.pickerBtn} onPress={() => setShowNovelPicker(true)}>
-                        <Text style={{color: '#fff'}}>{Array.isArray(novelsList) && novelsList.find(n => n._id === selectedNovelId)?.title || "اضغط للاختيار"}</Text>
-                        <Ionicons name="chevron-down" size={20} color="#666" />
-                    </TouchableOpacity>
-                    </>
-                )}
-
-                {chapterMode === 'single' ? (
-                    // SINGLE UPLOAD UI
-                    <>
-                        <View style={{flexDirection: 'row', gap: 10, marginTop: 10}}>
-                            <View style={{flex: 1}}>
-                                <Text style={styles.label}>رقم الفصل</Text>
-                                <TextInput style={styles.input} value={chapterNumber} onChangeText={setChapterNumber} keyboardType="numeric" placeholder="1" placeholderTextColor="#444" />
+          <ScrollView contentContainerStyle={styles.content}>
+            
+            {/* NOVEL DETAILS FORM */}
+            {activeTab === 'novel' && (
+                <View style={{gap: 20}}>
+                    {/* Cover Section */}
+                    <TouchableOpacity style={styles.coverUpload} onPress={pickImage}>
+                        {uploadingImage ? <ActivityIndicator color="#fff" /> : cover ? (
+                            <ImageBackground source={{ uri: cover }} style={styles.coverPreview} imageStyle={{borderRadius: 16}}>
+                                <View style={styles.editOverlay}><Ionicons name="camera" size={24} color="#fff" /></View>
+                            </ImageBackground>
+                        ) : (
+                            <View style={styles.placeholderCover}>
+                                <Ionicons name="image-outline" size={40} color="#666" />
+                                <Text style={styles.placeholderText}>رفع الغلاف</Text>
                             </View>
-                            <View style={{flex: 2}}>
-                                <Text style={styles.label}>عنوان الفصل</Text>
-                                <TextInput style={styles.input} value={chapterTitle} onChangeText={setChapterTitle} placeholder="مثال: البداية" placeholderTextColor="#444" />
-                            </View>
-                        </View>
-                        <Text style={styles.label}>محتوى الفصل</Text>
-                        {loading && !chapterContent ? <ActivityIndicator color="#4a7cc7" style={{marginVertical: 20}} /> : (
-                            <TextInput style={[styles.input, {height: 350, textAlign: 'right', lineHeight: 22}]} value={chapterContent} onChangeText={setChapterContent} multiline placeholder="الصق نص الفصل هنا..." placeholderTextColor="#444" textAlignVertical="top" />
                         )}
-                        <TouchableOpacity style={styles.submitBtn} onPress={handleSaveChapter} disabled={loading}>
-                            {loading ? <ActivityIndicator color="#000" /> : <Text style={styles.submitText}>{isEditingChapter ? 'حفظ تعديلات الفصل' : 'نشر الفصل'}</Text>}
-                        </TouchableOpacity>
-                    </>
-                ) : (
-                    // BULK UPLOAD UI
-                    <View style={styles.bulkContainer}>
-                        <Text style={styles.bulkInfo}>ارفع ملف ZIP يحتوي على ملفات نصية (.txt). سيتم استخراج الأرقام من أسماء الملفات.</Text>
-                        <TouchableOpacity style={styles.filePickerBtn} onPress={pickZipFile}>
-                            {selectedFile ? (
-                                <View style={{alignItems: 'center'}}>
-                                    <Ionicons name="document-text" size={32} color="#4ade80" />
-                                    <Text style={{color: '#fff', marginTop: 5}}>{selectedFile.name}</Text>
-                                </View>
+                    </TouchableOpacity>
+                    
+                    <GlassContainer>
+                        <Text style={styles.label}>عنوان الرواية</Text>
+                        <TextInput 
+                            style={styles.glassInput} 
+                            value={title} 
+                            onChangeText={setTitle} 
+                            placeholder="اكتب العنوان هنا..." 
+                            placeholderTextColor="#666" 
+                        />
+                        
+                        <Text style={styles.label}>رابط الصورة (اختياري)</Text>
+                        <TextInput 
+                            style={[styles.glassInput, {fontSize: 12}]} 
+                            value={cover} 
+                            onChangeText={setCover} 
+                            placeholder="https://..." 
+                            placeholderTextColor="#666" 
+                        />
+                    </GlassContainer>
+
+                    <GlassContainer>
+                        <Text style={styles.label}>الحالة</Text>
+                        <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.statusRow}>
+                            {statusOptions.map(opt => (
+                                <TouchableOpacity 
+                                    key={opt} 
+                                    style={[styles.statusChip, status === opt && styles.statusChipActive]} 
+                                    onPress={() => setStatus(opt)}
+                                >
+                                    <Text style={[styles.statusText, status === opt && {color: '#fff', fontWeight: 'bold'}]}>{opt}</Text>
+                                </TouchableOpacity>
+                            ))}
+                        </ScrollView>
+                    </GlassContainer>
+
+                    {/* Tags */}
+                    <GlassContainer>
+                        <Text style={styles.label}>التصنيفات المختارة</Text>
+                        <View style={styles.selectedTagsContainer}>
+                            {selectedTags.length === 0 ? (
+                                <Text style={{color: '#666', fontSize: 12, textAlign: 'center', width: '100%', padding: 10}}>لم يتم اختيار تصنيفات</Text>
                             ) : (
-                                <View style={{alignItems: 'center'}}>
-                                    <Ionicons name="cloud-upload-outline" size={40} color="#666" />
-                                    <Text style={{color: '#666', marginTop: 5}}>اضغط لاختيار ملف .zip</Text>
+                                selectedTags.map(tag => (
+                                     <View key={tag} style={styles.selectedTagChip}>
+                                         <Text style={styles.selectedTagText}>{tag}</Text>
+                                         <TouchableOpacity style={styles.removeTagBtn} onPress={() => removeTag(tag)}>
+                                             <Ionicons name="close" size={14} color="#fff" />
+                                         </TouchableOpacity>
+                                     </View>
+                                ))
+                            )}
+                        </View>
+
+                        {/* Admin Only: Add New Category */}
+                        {isAdmin && (
+                            <>
+                                <Text style={[styles.label, {marginTop: 15}]}>إضافة تصنيف جديد (مشرف فقط)</Text>
+                                <View style={styles.addTagInputRow}>
+                                    <TextInput 
+                                        style={[styles.glassInput, {flex: 1, marginBottom: 0}]} 
+                                        value={customTag} 
+                                        onChangeText={setCustomTag} 
+                                        placeholder="اكتب تصنيفاً جديداً..." 
+                                        placeholderTextColor="#666" 
+                                    />
+                                    <TouchableOpacity style={styles.addTagBtn} onPress={addCustomTag}>
+                                        <Ionicons name="add" size={24} color="#fff" />
+                                    </TouchableOpacity>
+                                </View>
+                            </>
+                        )}
+
+                        <Text style={[styles.label, {marginTop: 15}]}>اختر من القائمة</Text>
+                        <View style={styles.tagsCloud}>
+                            {availableCategories.filter(c => !selectedTags.includes(c)).map(cat => (
+                                <View key={cat} style={styles.suggestionTagWrapper}>
+                                    <TouchableOpacity style={styles.suggestionTag} onPress={() => toggleTag(cat)}>
+                                        <Text style={{color: '#ccc', fontSize: 12}}>{cat}</Text>
+                                        <Ionicons name="add" size={12} color="#ccc" />
+                                    </TouchableOpacity>
+                                    
+                                    {isAdmin && (
+                                        <TouchableOpacity style={styles.deleteCategoryBtn} onPress={() => handleDeleteCategory(cat)}>
+                                            <Ionicons name="close-circle" size={16} color="#ff4444" />
+                                        </TouchableOpacity>
+                                    )}
+                                </View>
+                            ))}
+                        </View>
+                    </GlassContainer>
+
+                    {/* 🔥 DESCRIPTION BOX: AUTO-GROW & HUGE 🔥 */}
+                    <GlassContainer>
+                        <Text style={styles.label}>الوصف</Text>
+                        <TextInput 
+                            style={[styles.glassInput, styles.descriptionInput]} 
+                            value={description} 
+                            onChangeText={setDescription} 
+                            multiline={true} 
+                            scrollEnabled={false} // KEY: Allows the box to expand with text
+                            placeholder="اكتب وصفاً مشوقاً..." 
+                            placeholderTextColor="#666" 
+                        />
+                    </GlassContainer>
+
+                    <TouchableOpacity style={styles.mainBtn} onPress={handleSaveNovel} disabled={loading}>
+                        {loading ? <ActivityIndicator color="#fff" /> : (
+                            <View style={styles.btnContent}>
+                                <Text style={styles.btnText}>{editNovelData ? 'حفظ التعديلات' : 'إنشاء الرواية'}</Text>
+                            </View>
+                        )}
+                    </TouchableOpacity>
+                </View>
+            )}
+
+            {/* CHAPTERS LIST */}
+            {activeTab === 'chapters_list' && (
+                 <View style={{flex: 1}}>
+                     <TouchableOpacity style={styles.addChapterCard} onPress={prepareAddChapter}>
+                         <View style={styles.addChapterContent}>
+                             <Ionicons name="add-circle-outline" size={32} color="#fff" />
+                             <Text style={{color: '#fff', fontWeight: 'bold', marginTop: 5}}>إضافة فصل جديد</Text>
+                         </View>
+                     </TouchableOpacity>
+
+                     {chaptersLoading ? <ActivityIndicator size="large" color="#fff" style={{marginTop: 50}} /> : (
+                         <View style={{gap: 10}}>
+                             {novelChapters.length === 0 ? <Text style={{color: '#666', textAlign: 'center', marginTop: 20}}>لا توجد فصول لهذه الرواية.</Text> : (
+                                 novelChapters.map((chap) => (
+                                     <View key={chap.number} style={styles.chapterCard}>
+                                         <View style={styles.chapInfo}>
+                                             <Text style={styles.chapNum}>#{chap.number}</Text>
+                                             <Text style={styles.chapTitle}>{chap.title}</Text>
+                                         </View>
+                                         <View style={styles.chapActions}>
+                                             <TouchableOpacity style={styles.iconAction} onPress={() => prepareEditChapter(chap)}>
+                                                 <Ionicons name="create-outline" size={20} color="#fff" />
+                                             </TouchableOpacity>
+                                             <TouchableOpacity style={styles.iconAction} onPress={() => handleDeleteChapter(chap.number)}>
+                                                 <Ionicons name="trash-outline" size={20} color="#ff4444" />
+                                             </TouchableOpacity>
+                                         </View>
+                                     </View>
+                                 ))
+                             )}
+                         </View>
+                     )}
+                 </View>
+            )}
+
+            {/* CHAPTER FORM */}
+            {activeTab === 'chapter_form' && (
+                <View style={{gap: 20}}>
+                    {editNovelData && (
+                        <TouchableOpacity style={styles.backLink} onPress={() => setActiveTab('chapters_list')}>
+                            <Ionicons name="arrow-forward" size={16} color="#fff" />
+                            <Text style={{color: '#fff'}}>رجوع للقائمة</Text>
+                        </TouchableOpacity>
+                    )}
+
+                    {!isEditingChapter && (
+                        <View style={styles.modeToggle}>
+                            <TouchableOpacity style={[styles.modeBtn, chapterMode === 'single' && styles.modeBtnActive]} onPress={() => setChapterMode('single')}>
+                                <Text style={[styles.modeText, chapterMode === 'single' && {color:'#fff'}]}>نشر منفرد</Text>
+                            </TouchableOpacity>
+                            <TouchableOpacity style={[styles.modeBtn, chapterMode === 'bulk' && styles.modeBtnActive]} onPress={() => setChapterMode('bulk')}>
+                                <Text style={[styles.modeText, chapterMode === 'bulk' && {color:'#fff'}]}>نشر ZIP</Text>
+                            </TouchableOpacity>
+                        </View>
+                    )}
+
+                    {!editNovelData && !selectedNovelId && (
+                        <GlassContainer>
+                            <Text style={styles.label}>اختر الرواية</Text>
+                            <TouchableOpacity style={styles.pickerBtn} onPress={() => setShowNovelPicker(true)}>
+                                <Text style={{color: '#fff'}}>{novelsList.find(n => n._id === selectedNovelId)?.title || "اختر من القائمة"}</Text>
+                                <Ionicons name="chevron-down" size={20} color="#666" />
+                            </TouchableOpacity>
+                        </GlassContainer>
+                    )}
+
+                    {chapterMode === 'single' ? (
+                        <GlassContainer>
+                            <View style={{flexDirection: 'row', gap: 15, marginBottom: 15}}>
+                                <View style={{flex: 1}}>
+                                    <Text style={styles.label}>رقم الفصل</Text>
+                                    <TextInput style={styles.glassInput} value={chapterNumber} onChangeText={setChapterNumber} keyboardType="numeric" placeholder="1" placeholderTextColor="#666" />
+                                </View>
+                                <View style={{flex: 2}}>
+                                    <Text style={styles.label}>العنوان</Text>
+                                    <TextInput style={styles.glassInput} value={chapterTitle} onChangeText={setChapterTitle} placeholder="مثال: البداية" placeholderTextColor="#666" />
+                                </View>
+                            </View>
+                            <Text style={styles.label}>المحتوى</Text>
+                            <TextInput 
+                                style={[styles.glassInput, {minHeight: 400, textAlign: 'right', lineHeight: 24}]} 
+                                value={chapterContent} 
+                                onChangeText={setChapterContent} 
+                                multiline 
+                                scrollEnabled={false} // Auto Grow
+                                placeholder="اكتب أو الصق النص هنا..." 
+                                placeholderTextColor="#666" 
+                                textAlignVertical="top" 
+                            />
+                            <TouchableOpacity style={styles.mainBtn} onPress={handleSaveChapter} disabled={loading}>
+                                {loading ? <ActivityIndicator color="#fff" /> : (
+                                    <View style={styles.btnContent}>
+                                        <Text style={styles.btnText}>{isEditingChapter ? 'حفظ التعديل' : 'نشر الفصل'}</Text>
+                                    </View>
+                                )}
+                            </TouchableOpacity>
+                        </GlassContainer>
+                    ) : (
+                        <GlassContainer>
+                            <Text style={styles.infoText}>ارفع ملف ZIP يحتوي على ملفات نصية (.txt). سيتم استخراج الأرقام من أسماء الملفات.</Text>
+                            <TouchableOpacity style={styles.uploadBox} onPress={pickZipFile}>
+                                {selectedFile ? (
+                                    <View style={{alignItems: 'center'}}>
+                                        <Ionicons name="document-text" size={40} color="#fff" />
+                                        <Text style={{color: '#fff', marginTop: 10}}>{selectedFile.name}</Text>
+                                    </View>
+                                ) : (
+                                    <View style={{alignItems: 'center'}}>
+                                        <Ionicons name="cloud-upload-outline" size={50} color="#666" />
+                                        <Text style={{color: '#666', marginTop: 10}}>اضغط لاختيار ملف .zip</Text>
+                                    </View>
+                                )}
+                            </TouchableOpacity>
+                            <TouchableOpacity style={[styles.mainBtn, {marginTop: 20}]} onPress={handleBulkUpload} disabled={loading || !selectedFile}>
+                                {loading ? <ActivityIndicator color="#fff" /> : <Text style={styles.btnText}>بدء المعالجة</Text>}
+                            </TouchableOpacity>
+                            {bulkLogs.length > 0 && (
+                                <View style={styles.logsBox}>
+                                    {bulkLogs.map((log, i) => <Text key={i} style={{color: log.includes('❌') ? '#ff6b6b' : '#4ade80', fontSize: 11}}>{log}</Text>)}
                                 </View>
                             )}
-                        </TouchableOpacity>
-                        
-                        <TouchableOpacity style={[styles.submitBtn, {backgroundColor: '#f59e0b'}, !selectedFile && {opacity: 0.5}]} onPress={handleBulkUpload} disabled={loading || !selectedFile}>
-                            {loading ? <ActivityIndicator color="#000" /> : <Text style={styles.submitText}>بدء المعالجة والنشر</Text>}
-                        </TouchableOpacity>
+                        </GlassContainer>
+                    )}
+                </View>
+            )}
+          </ScrollView>
 
-                        {bulkLogs.length > 0 && (
-                            <View style={styles.logsBox}>
-                                {bulkLogs.map((log, i) => (
-                                    <Text key={i} style={{color: log.includes('❌') ? '#ff6b6b' : '#4ade80', fontSize: 11, marginBottom: 2}}>{log}</Text>
-                                ))}
-                            </View>
-                        )}
-                    </View>
-                )}
-            </View>
-        )}
-      </ScrollView>
-
-      {/* Novel Picker Modal */}
-      <Modal visible={showNovelPicker} transparent animationType="slide">
-          <View style={styles.modalBg}>
-              <View style={styles.modalContent}>
-                  <Text style={styles.modalTitle}>اختر رواية</Text>
-                  {novelsList.length === 0 ? <Text style={{color: '#666', textAlign: 'center', padding: 20}}>لا توجد روايات.</Text> : (
+          <Modal visible={showNovelPicker} transparent animationType="slide">
+              <View style={styles.modalBg}>
+                  <View style={styles.modalContent}>
+                      <Text style={styles.modalTitle}>اختر رواية</Text>
                       <FlatList
                         data={novelsList}
                         keyExtractor={item => item._id}
@@ -511,68 +660,104 @@ export default function AdminDashboardScreen({ route, navigation }) {
                             </TouchableOpacity>
                         )}
                       />
-                  )}
-                  <TouchableOpacity style={styles.closeBtn} onPress={() => setShowNovelPicker(false)}><Text style={{color: '#fff'}}>إغلاق</Text></TouchableOpacity>
+                      <TouchableOpacity style={styles.closeBtn} onPress={() => setShowNovelPicker(false)}><Text style={{color: '#fff'}}>إغلاق</Text></TouchableOpacity>
+                  </View>
               </View>
-          </View>
-      </Modal>
-    </SafeAreaView>
+          </Modal>
+      </SafeAreaView>
+    </View>
   );
 }
 
 const styles = StyleSheet.create({
   container: { flex: 1, backgroundColor: '#000' },
-  header: { flexDirection: 'row', justifyContent: 'space-between', padding: 20, borderBottomWidth: 1, borderColor: '#222', alignItems: 'center' },
-  headerTitle: { color: '#fff', fontSize: 18, fontWeight: 'bold' },
-  tabs: { flexDirection: 'row', padding: 10, gap: 10 },
-  tab: { flex: 1, padding: 12, alignItems: 'center', backgroundColor: '#111', borderRadius: 8 },
-  activeTab: { backgroundColor: '#4a7cc7' },
-  tabText: { color: '#888' },
-  activeTabText: { color: '#fff', fontWeight: 'bold' },
-  content: { padding: 20 },
-  form: { gap: 15 },
-  label: { color: '#ccc', fontSize: 14, textAlign: 'right', marginBottom: 5 },
-  input: { backgroundColor: '#111', borderRadius: 8, padding: 12, color: '#fff', textAlign: 'right', borderWidth: 1, borderColor: '#333' },
-  pickerBtn: { flexDirection: 'row', justifyContent: 'space-between', backgroundColor: '#111', padding: 15, borderRadius: 8, borderWidth: 1, borderColor: '#333' },
-  tagsContainer: { flexDirection: 'row', flexWrap: 'wrap', gap: 8 },
-  tagChip: { paddingHorizontal: 15, paddingVertical: 8, backgroundColor: '#111', borderRadius: 20, borderWidth: 1, borderColor: '#333' },
-  activeTagChip: { backgroundColor: '#4a7cc7', borderColor: '#4a7cc7' },
-  addTagRow: { flexDirection: 'row', gap: 10, alignItems: 'center' },
-  addTagBtn: { width: 50, height: 50, backgroundColor: '#4a7cc7', borderRadius: 8, alignItems: 'center', justifyContent: 'center' },
-  selectedTagsRow: { flexDirection: 'row', flexWrap: 'wrap', gap: 8, marginTop: 10 },
-  selectedTag: { flexDirection: 'row', alignItems: 'center', backgroundColor: '#222', paddingHorizontal: 12, paddingVertical: 6, borderRadius: 15, gap: 5, borderWidth: 1, borderColor: '#444' },
-  selectedTagText: { color: '#fff', fontSize: 12 },
-  statusRow: { flexDirection: 'row', gap: 10, flexWrap: 'wrap', justifyContent: 'flex-end' },
-  statusBtn: { flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 8, padding: 12, borderRadius: 8, borderWidth: 1, borderColor: '#333', backgroundColor: '#111', minWidth: '30%' },
-  radio: { width: 12, height: 12, borderRadius: 6, backgroundColor: '#333' },
-  submitBtn: { backgroundColor: '#fff', padding: 15, borderRadius: 8, alignItems: 'center', marginTop: 20 },
-  submitText: { color: '#000', fontWeight: 'bold', fontSize: 16 },
-  imagePicker: { height: 150, backgroundColor: '#111', borderRadius: 8, borderWidth: 1, borderColor: '#333', borderStyle: 'dashed', justifyContent: 'center', alignItems: 'center', overflow: 'hidden' },
-  previewImage: { width: '100%', height: '100%', resizeMode: 'contain' },
-  chapterListSection: { marginTop: 0 },
-  addChapterCta: { flexDirection: 'row', alignItems: 'center', justifyContent: 'center', backgroundColor: '#4a7cc7', padding: 15, borderRadius: 8, marginBottom: 15, gap: 8 },
-  chapterListContainer: { backgroundColor: '#161616', borderRadius: 12, overflow: 'hidden', borderWidth: 1, borderColor: '#333' },
-  chapterListItem: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', padding: 15, borderBottomWidth: 1, borderColor: '#222' },
-  chapterListTitle: { color: '#fff', fontSize: 14, fontWeight: 'bold', textAlign: 'right' },
-  chapterListSubtitle: { color: '#888', fontSize: 12, textAlign: 'right', marginTop: 2 },
-  chapterActions: { flexDirection: 'row', gap: 10 },
-  actionIcon: { padding: 8, borderRadius: 6 },
-  backToListBtn: { flexDirection: 'row', alignItems: 'center', justifyContent: 'flex-end', gap: 5, marginBottom: 10 },
+  bgImage: { ...StyleSheet.absoluteFillObject },
+  
+  header: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', padding: 20 },
+  headerTitle: { fontSize: 20, fontWeight: 'bold', color: '#fff', textShadowColor: 'rgba(0,0,0,0.5)', textShadowRadius: 10 },
+  iconBtn: { padding: 8, backgroundColor: 'rgba(255,255,255,0.1)', borderRadius: 12 },
+  
+  tabContainer: { flexDirection: 'row', paddingHorizontal: 20, marginBottom: 20, gap: 15 },
+  tab: { paddingVertical: 8, paddingHorizontal: 20, borderRadius: 20, backgroundColor: 'rgba(20,20,20,0.6)', borderWidth: 1, borderColor: 'rgba(255,255,255,0.1)' },
+  activeTab: { backgroundColor: 'rgba(255,255,255,0.1)', borderColor: 'rgba(255,255,255,0.3)' },
+  tabText: { color: '#888', fontWeight: '600' },
+  activeTabText: { color: '#fff' },
+
+  content: { padding: 20, paddingBottom: 50 },
+  
+  // Strict Glass Container
+  glassContainer: { backgroundColor: 'rgba(20, 20, 20, 0.75)', borderRadius: 16, padding: 20, borderWidth: 1, borderColor: 'rgba(255,255,255,0.1)', marginBottom: 20 },
+  
+  label: { color: '#ccc', fontSize: 13, marginBottom: 8, textAlign: 'right', fontWeight: '600' },
+  glassInput: { backgroundColor: 'rgba(0,0,0,0.5)', borderRadius: 12, padding: 15, color: '#fff', textAlign: 'right', borderWidth: 1, borderColor: 'rgba(255,255,255,0.1)', fontSize: 16 },
+  
+  descriptionInput: {
+      minHeight: 400, // HUGE BOX
+      textAlignVertical: 'top' 
+  },
+
+  coverUpload: { height: 200, borderRadius: 16, marginBottom: 20, overflow: 'hidden', borderWidth: 1, borderColor: 'rgba(255,255,255,0.1)', backgroundColor: 'rgba(30,30,30,0.6)' },
+  coverPreview: { width: '100%', height: '100%', justifyContent: 'center', alignItems: 'center' },
+  placeholderCover: { flex: 1, justifyContent: 'center', alignItems: 'center' },
+  placeholderText: { color: '#666', marginTop: 10 },
+  editOverlay: { backgroundColor: 'rgba(0,0,0,0.4)', padding: 15, borderRadius: 30 },
+
+  statusRow: { flexDirection: 'row-reverse', gap: 10 },
+  statusChip: { paddingHorizontal: 15, paddingVertical: 8, borderRadius: 20, borderWidth: 1, borderColor: 'rgba(255,255,255,0.1)', backgroundColor: 'rgba(0,0,0,0.5)' },
+  statusChipActive: { backgroundColor: 'rgba(255,255,255,0.1)', borderColor: '#fff' },
+  statusText: { color: '#888', fontSize: 12 },
+
+  selectedTagsContainer: { flexDirection: 'row', flexWrap: 'wrap', gap: 10, justifyContent: 'flex-end', marginBottom: 10 },
+  selectedTagChip: { 
+      flexDirection: 'row', alignItems: 'center', 
+      backgroundColor: 'rgba(255,255,255,0.1)', 
+      borderRadius: 20, 
+      borderWidth: 1, borderColor: 'rgba(255,255,255,0.2)',
+      paddingVertical: 6, paddingHorizontal: 12
+  },
+  selectedTagText: { color: '#fff', fontWeight: 'bold', fontSize: 12, marginRight: 6 },
+  removeTagBtn: { backgroundColor: 'rgba(0,0,0,0.3)', borderRadius: 10, padding: 2 },
+  
+  addTagInputRow: { flexDirection: 'row', gap: 10, alignItems: 'center' },
+  addTagBtn: { width: 50, height: 50, borderRadius: 12, backgroundColor: 'rgba(255,255,255,0.05)', borderWidth: 1, borderColor: 'rgba(255,255,255,0.1)', justifyContent: 'center', alignItems: 'center' },
+  
+  tagsCloud: { flexDirection: 'row', flexWrap: 'wrap', gap: 8, justifyContent: 'flex-end' },
+  
+  suggestionTagWrapper: { position: 'relative', margin: 2 },
+  suggestionTag: { flexDirection: 'row', alignItems: 'center', gap: 4, paddingHorizontal: 10, paddingVertical: 6, borderRadius: 15, backgroundColor: 'rgba(255,255,255,0.05)', borderWidth: 1, borderColor: 'rgba(255,255,255,0.1)' },
+  deleteCategoryBtn: { position: 'absolute', top: -5, left: -5, zIndex: 10, backgroundColor: '#111', borderRadius: 8 },
+
+  // Telegram Style Action Button
+  mainBtn: { borderRadius: 16, overflow: 'hidden', marginTop: 10, backgroundColor: 'rgba(255,255,255,0.08)', borderWidth: 1, borderColor: 'rgba(255,255,255,0.2)' },
+  btnContent: { padding: 18, alignItems: 'center', justifyContent: 'center' },
+  btnText: { color: '#fff', fontWeight: 'bold', fontSize: 16 },
+
+  // Chapters Style
+  addChapterCard: { marginBottom: 20, borderRadius: 16, overflow: 'hidden', borderWidth: 1, borderColor: 'rgba(255,255,255,0.2)', borderStyle: 'dashed', backgroundColor: 'rgba(255,255,255,0.05)' },
+  addChapterContent: { padding: 30, alignItems: 'center', justifyContent: 'center' },
+  
+  chapterCard: { flexDirection: 'row-reverse', backgroundColor: 'rgba(30,30,30,0.6)', padding: 15, borderRadius: 12, marginBottom: 10, alignItems: 'center', borderWidth: 1, borderColor: 'rgba(255,255,255,0.1)' },
+  chapInfo: { flex: 1, alignItems: 'flex-end' },
+  chapNum: { color: '#ccc', fontSize: 12, fontWeight: 'bold' },
+  chapTitle: { color: '#fff', fontSize: 14, fontWeight: 'bold' },
+  chapActions: { flexDirection: 'row', gap: 10 },
+  iconAction: { padding: 8, backgroundColor: 'rgba(255,255,255,0.05)', borderRadius: 8 },
+
+  // Toggle
+  modeToggle: { flexDirection: 'row', backgroundColor: 'rgba(0,0,0,0.5)', padding: 4, borderRadius: 12, marginBottom: 20 },
+  modeBtn: { flex: 1, paddingVertical: 10, alignItems: 'center', borderRadius: 8 },
+  modeBtnActive: { backgroundColor: 'rgba(255,255,255,0.1)' },
+  modeText: { color: '#ccc', fontWeight: 'bold' },
+
+  uploadBox: { height: 150, backgroundColor: 'rgba(0,0,0,0.5)', borderRadius: 16, borderWidth: 1, borderColor: 'rgba(255,255,255,0.1)', borderStyle: 'dashed', justifyContent: 'center', alignItems: 'center', marginTop: 10 },
+  infoText: { color: '#888', fontSize: 12, textAlign: 'right', lineHeight: 20 },
+  logsBox: { marginTop: 20, padding: 10, backgroundColor: '#000', borderRadius: 8 },
+
+  // Modal
   modalBg: { flex: 1, backgroundColor: 'rgba(0,0,0,0.8)', justifyContent: 'center', padding: 20 },
-  modalContent: { backgroundColor: '#111', borderRadius: 12, padding: 20, maxHeight: '80%' },
+  modalContent: { backgroundColor: '#161616', borderRadius: 16, padding: 20, maxHeight: '60%', borderWidth: 1, borderColor: '#333' },
   modalTitle: { color: '#fff', fontSize: 18, fontWeight: 'bold', textAlign: 'center', marginBottom: 20 },
   modalItem: { padding: 15, borderBottomWidth: 1, borderColor: '#222' },
   modalItemText: { color: '#fff', textAlign: 'right' },
-  closeBtn: { marginTop: 20, alignItems: 'center', padding: 15, backgroundColor: '#333', borderRadius: 8 },
-  
-  // Bulk Upload Styles
-  modeSwitch: { flexDirection: 'row', backgroundColor: '#111', padding: 4, borderRadius: 8, marginBottom: 15 },
-  modeOption: { flex: 1, paddingVertical: 8, alignItems: 'center', borderRadius: 6 },
-  activeMode: { backgroundColor: '#222' },
-  modeText: { color: '#666', fontSize: 12, fontWeight: 'bold' },
-  activeModeText: { color: '#4a7cc7' },
-  bulkContainer: { marginTop: 10 },
-  bulkInfo: { color: '#888', fontSize: 12, marginBottom: 20, lineHeight: 18, textAlign: 'right' },
-  filePickerBtn: { height: 120, backgroundColor: '#111', borderRadius: 8, borderWidth: 1, borderColor: '#333', borderStyle: 'dashed', justifyContent: 'center', alignItems: 'center' },
-  logsBox: { marginTop: 20, padding: 10, backgroundColor: '#111', borderRadius: 8 }
+  closeBtn: { marginTop: 20, alignItems: 'center', padding: 15, backgroundColor: '#333', borderRadius: 12 },
 });
