@@ -8,13 +8,27 @@ import {
   ScrollView,
   Dimensions,
   Image,
-  RefreshControl
+  RefreshControl,
+  StatusBar,
+  ImageBackground
 } from 'react-native';
 import { LinearGradient } from 'expo-linear-gradient';
 import { Ionicons } from '@expo/vector-icons';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import api from '../services/api';
 import { useFocusEffect } from '@react-navigation/native';
+
+// Standard Glass Card
+const GlassCard = ({ children, style, onPress }) => (
+    <TouchableOpacity 
+        style={[styles.glassCard, style]} 
+        onPress={onPress}
+        activeOpacity={0.9}
+        disabled={!onPress}
+    >
+        {children}
+    </TouchableOpacity>
+);
 
 export default function TranslatorHubScreen({ navigation }) {
   const [jobs, setJobs] = useState([]);
@@ -42,34 +56,44 @@ export default function TranslatorHubScreen({ navigation }) {
   };
 
   const renderJobItem = (job) => (
-      <TouchableOpacity 
+      <GlassCard 
         key={job.id} 
         style={styles.jobCard}
         onPress={() => navigation.navigate('TranslationJobDetail', { job })}
       >
-          <Image source={{uri: job.cover}} style={styles.jobCover} />
-          <View style={styles.jobInfo}>
-              <Text style={styles.jobTitle} numberOfLines={1}>{job.novelTitle}</Text>
-              <View style={styles.jobStatusRow}>
-                  <View style={[styles.statusDot, {backgroundColor: job.status === 'active' ? '#4ade80' : job.status === 'failed' ? '#ff4444' : '#888'}]} />
-                  <Text style={styles.statusText}>
-                      {job.status === 'active' ? 'جاري الترجمة' : job.status === 'completed' ? 'مكتمل' : 'متوقف/خطأ'}
-                  </Text>
+          <View style={styles.jobContentWrapper}>
+              <Image source={{uri: job.cover}} style={styles.jobCover} />
+              <View style={styles.jobInfo}>
+                  <Text style={styles.jobTitle} numberOfLines={1}>{job.novelTitle}</Text>
+                  <View style={styles.jobStatusRow}>
+                      <View style={[styles.statusDot, {backgroundColor: job.status === 'active' ? '#fff' : '#666'}]} />
+                      <Text style={styles.statusText}>
+                          {job.status === 'active' ? 'جاري الترجمة' : job.status === 'completed' ? 'مكتمل' : 'متوقف/خطأ'}
+                      </Text>
+                  </View>
+                  <View style={styles.progressContainer}>
+                      <View style={[styles.progressBar, {width: `${(job.translated / job.total) * 100}%`}]} />
+                  </View>
+                  <Text style={styles.progressText}>{job.translated} / {job.total} فصل</Text>
               </View>
-              <View style={styles.progressContainer}>
-                  <View style={[styles.progressBar, {width: `${(job.translated / job.total) * 100}%`}]} />
-              </View>
-              <Text style={styles.progressText}>{job.translated} / {job.total} فصل</Text>
+              <Ionicons name="chevron-back" size={20} color="#666" />
           </View>
-          <Ionicons name="chevron-back" size={20} color="#666" />
-      </TouchableOpacity>
+      </GlassCard>
   );
 
   return (
     <View style={styles.container}>
-      <LinearGradient colors={['#0f172a', '#000000']} style={styles.bg} />
+      <StatusBar barStyle="light-content" />
+      
+      <ImageBackground 
+        source={require('../../assets/adaptive-icon.png')} 
+        style={styles.bgImage}
+        blurRadius={20}
+      >
+          <LinearGradient colors={['rgba(0,0,0,0.6)', '#000000']} style={StyleSheet.absoluteFill} />
+      </ImageBackground>
+      
       <SafeAreaView style={{flex: 1}}>
-        
         <View style={styles.header}>
             <TouchableOpacity onPress={() => navigation.navigate('TranslatorSettings')} style={styles.iconBtn}>
                 <Ionicons name="settings-outline" size={24} color="#fff" />
@@ -91,34 +115,20 @@ export default function TranslatorHubScreen({ navigation }) {
             <TouchableOpacity 
                 style={styles.newTranslationBtn}
                 onPress={() => navigation.navigate('EnglishNovelsSelection')}
+                activeOpacity={0.8}
             >
-                <LinearGradient 
-                    colors={['#06b6d4', '#3b82f6']} 
-                    start={{x:0, y:0}} end={{x:1, y:1}} 
-                    style={styles.gradientBtn}
-                >
-                    <Ionicons name="add-circle" size={28} color="#fff" />
-                    <Text style={styles.newTranslationText}>بدء ترجمة جديدة</Text>
-                </LinearGradient>
+                <Ionicons name="add-circle" size={28} color="#fff" />
+                <Text style={styles.newTranslationText}>بدء ترجمة جديدة</Text>
             </TouchableOpacity>
 
             <Text style={styles.sectionTitle}>المهام الحالية</Text>
             {jobs.length === 0 ? (
-                <Text style={{color:'#666', textAlign:'center', marginTop: 20}}>لا توجد مهام نشطة.</Text>
+                <Text style={{color:'#666', textAlign:'center', marginTop: 50}}>لا توجد مهام نشطة حالياً.</Text>
             ) : (
                 <View style={styles.jobsList}>
                     {jobs.map(renderJobItem)}
                 </View>
             )}
-
-            {/* This is intentionally hidden as Glossary is accessed per Novel now via JobDetail or Selection, 
-                OR we can make it open a novel picker specifically for glossary. 
-                For now, linking to selection screen but user might want a direct glossary hub later.
-                Let's make it open EnglishNovelsSelection but with a params to redirect to Glossary? 
-                Actually, simpler: Just show the button, let user pick novel, then go to glossary.
-                But based on prompt, let's keep it simple or remove if confusing.
-                The prompt asked for glossary interface inside Job Detail. 
-            */}
 
         </ScrollView>
       </SafeAreaView>
@@ -128,29 +138,44 @@ export default function TranslatorHubScreen({ navigation }) {
 
 const styles = StyleSheet.create({
   container: { flex: 1, backgroundColor: '#000' },
-  bg: { ...StyleSheet.absoluteFillObject },
-  header: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', padding: 20, borderBottomWidth: 1, borderColor: '#222' },
+  bgImage: { ...StyleSheet.absoluteFillObject },
+  header: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', padding: 20 },
   headerTitle: { color: '#fff', fontSize: 20, fontWeight: 'bold', textAlign: 'right' },
-  headerSub: { color: '#06b6d4', fontSize: 12, textAlign: 'right' },
-  iconBtn: { padding: 8, backgroundColor: 'rgba(255,255,255,0.1)', borderRadius: 12 },
+  headerSub: { color: '#ccc', fontSize: 12, textAlign: 'right' },
+  iconBtn: { padding: 10, backgroundColor: 'rgba(255,255,255,0.1)', borderRadius: 12 },
   
   content: { padding: 20 },
   
-  newTranslationBtn: { marginBottom: 30, borderRadius: 16, overflow: 'hidden', shadowColor: '#06b6d4', shadowOpacity: 0.3, shadowRadius: 10, elevation: 5 },
-  gradientBtn: { flexDirection: 'row', alignItems: 'center', justifyContent: 'center', padding: 18, gap: 10 },
+  // Glassy Button
+  newTranslationBtn: { 
+      marginBottom: 30, borderRadius: 16, overflow: 'hidden', 
+      backgroundColor: 'rgba(255,255,255,0.08)', borderWidth: 1, borderColor: 'rgba(255,255,255,0.2)',
+      flexDirection: 'row', alignItems: 'center', justifyContent: 'center', padding: 20, gap: 10
+  },
   newTranslationText: { color: '#fff', fontSize: 18, fontWeight: 'bold' },
 
   sectionTitle: { color: '#fff', fontSize: 18, fontWeight: 'bold', marginBottom: 15, textAlign: 'right' },
   
   jobsList: { gap: 15, marginBottom: 30 },
-  jobCard: { flexDirection: 'row-reverse', backgroundColor: '#161616', borderRadius: 12, padding: 10, alignItems: 'center', borderWidth: 1, borderColor: '#333' },
+  
+  // Glass Card
+  glassCard: { 
+      backgroundColor: 'rgba(20, 20, 20, 0.75)',
+      borderRadius: 16, 
+      overflow: 'hidden', 
+      borderWidth: 1, 
+      borderColor: 'rgba(255,255,255,0.1)', 
+      position: 'relative' 
+  },
+  jobCard: { marginBottom: 0 },
+  jobContentWrapper: { flexDirection: 'row-reverse', padding: 15, alignItems: 'center' },
   jobCover: { width: 60, height: 80, borderRadius: 8, backgroundColor: '#333' },
   jobInfo: { flex: 1, marginRight: 15, alignItems: 'flex-end' },
   jobTitle: { color: '#fff', fontSize: 16, fontWeight: 'bold', marginBottom: 5 },
   jobStatusRow: { flexDirection: 'row-reverse', alignItems: 'center', gap: 5, marginBottom: 8 },
   statusDot: { width: 8, height: 8, borderRadius: 4 },
   statusText: { color: '#bbb', fontSize: 12 },
-  progressContainer: { width: '100%', height: 4, backgroundColor: '#333', borderRadius: 2, marginBottom: 4 },
-  progressBar: { height: '100%', backgroundColor: '#06b6d4', borderRadius: 2 },
+  progressContainer: { width: '100%', height: 4, backgroundColor: 'rgba(255,255,255,0.1)', borderRadius: 2, marginBottom: 4 },
+  progressBar: { height: '100%', backgroundColor: '#fff', borderRadius: 2 },
   progressText: { color: '#666', fontSize: 10 },
 });
