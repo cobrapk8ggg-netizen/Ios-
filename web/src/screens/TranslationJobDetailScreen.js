@@ -49,9 +49,12 @@ export default function TranslationJobDetailScreen({ navigation, route }) {
   }, []);
 
   const requestResume = () => {
+      // Resume logic is handled by 'start' endpoint with resumeFrom param or jobId if backend supports direct resume
+      // Based on existing logic, we call start with resumeFrom.
+      // Or if the backend supports direct resume by jobId (added in previous step), use that.
       setAlertConfig({
           title: "استئناف الترجمة",
-          message: `استئناف من الفصل ${job.currentChapter + 1}؟`,
+          message: `استئناف المهمة؟`,
           type: 'info',
           confirmText: "ابدأ",
           onConfirm: performResume
@@ -62,12 +65,51 @@ export default function TranslationJobDetailScreen({ navigation, route }) {
   const performResume = async () => {
       setAlertVisible(false);
       try {
+          // Use the updated backend logic which supports resuming by jobId directly
           await api.post('/api/translator/start', {
-              novelId: job.novelId,
-              resumeFrom: job.currentChapter + 1
+              jobId: job._id || job.id
           });
           showToast("تم استئناف المهمة", "success");
       } catch (e) { showToast("فشل الاستئناف", "error"); }
+  };
+
+  const requestPause = () => {
+      setAlertConfig({
+          title: "إيقاف مؤقت",
+          message: "هل تريد إيقاف الترجمة مؤقتاً؟ (ستتوقف بعد انتهاء الفصل الحالي)",
+          type: 'warning',
+          confirmText: "إيقاف",
+          onConfirm: performPause
+      });
+      setAlertVisible(true);
+  };
+
+  const performPause = async () => {
+      setAlertVisible(false);
+      try {
+          await api.post(`/api/translator/jobs/${job._id || job.id}/pause`);
+          showToast("تم إرسال طلب الإيقاف", "info");
+      } catch (e) { showToast("فشل الإيقاف", "error"); }
+  };
+
+  const requestDelete = () => {
+      setAlertConfig({
+          title: "حذف المهمة",
+          message: "هل أنت متأكد من حذف هذه المهمة نهائياً؟ (لا يؤثر على الفصول المترجمة بالفعل)",
+          type: 'danger',
+          confirmText: "حذف",
+          onConfirm: performDelete
+      });
+      setAlertVisible(true);
+  };
+
+  const performDelete = async () => {
+      setAlertVisible(false);
+      try {
+          await api.delete(`/api/translator/jobs/${job._id || job.id}`);
+          showToast("تم حذف المهمة", "success");
+          navigation.goBack();
+      } catch (e) { showToast("فشل الحذف", "error"); }
   };
 
   const renderLog = ({ item }) => {
@@ -118,9 +160,11 @@ export default function TranslationJobDetailScreen({ navigation, route }) {
             <GlassContainer style={styles.statusCard}>
                 <View style={{flexDirection:'row-reverse', justifyContent:'space-between', alignItems:'center'}}>
                     <Text style={styles.novelTitle}>{job.novelTitle}</Text>
-                    <View style={[styles.statusBadge, {backgroundColor: job.status === 'active' ? '#fff' : '#333'}]}>
+                    <View style={[styles.statusBadge, {backgroundColor: job.status === 'active' ? '#fff' : job.status === 'paused' ? '#f59e0b' : '#333'}]}>
                         {job.status === 'active' && <ActivityIndicator size="small" color="#000" style={{marginRight:5}} />}
-                        <Text style={{color: job.status === 'active' ? '#000' : '#fff', fontSize:12, fontWeight:'bold'}}>{job.status}</Text>
+                        <Text style={{color: job.status === 'active' ? '#000' : '#fff', fontSize:12, fontWeight:'bold'}}>
+                            {job.status === 'active' ? 'نشط' : job.status === 'paused' ? 'متوقف مؤقتاً' : job.status === 'completed' ? 'مكتمل' : 'فشل/توقف'}
+                        </Text>
                     </View>
                 </View>
                 <View style={styles.progressContainer}>
@@ -146,14 +190,27 @@ export default function TranslationJobDetailScreen({ navigation, route }) {
 
             <Text style={styles.sectionTitle}>إجراءات</Text>
             <View style={styles.actionsRow}>
-                {/* Glassy Action Buttons */}
-                <TouchableOpacity style={[styles.actionBtn, {borderColor: '#fff'}]} onPress={requestResume}>
-                    <Ionicons name="play" size={24} color="#fff" />
-                    <Text style={[styles.actionBtnText, {color: '#fff'}]}>استئناف</Text>
+                {job.status === 'active' ? (
+                    <TouchableOpacity style={[styles.actionBtn, {borderColor: '#f59e0b'}]} onPress={requestPause}>
+                        <Ionicons name="pause" size={24} color="#f59e0b" />
+                        <Text style={[styles.actionBtnText, {color: '#f59e0b'}]}>إيقاف مؤقت</Text>
+                    </TouchableOpacity>
+                ) : (
+                    <TouchableOpacity style={[styles.actionBtn, {borderColor: '#fff'}]} onPress={requestResume}>
+                        <Ionicons name="play" size={24} color="#fff" />
+                        <Text style={[styles.actionBtnText, {color: '#fff'}]}>استئناف</Text>
+                    </TouchableOpacity>
+                )}
+                
+                <TouchableOpacity style={[styles.actionBtn, {borderColor: '#ff4444'}]} onPress={requestDelete}>
+                    <Ionicons name="trash-outline" size={24} color="#ff4444" />
+                    <Text style={[styles.actionBtnText, {color: '#ff4444'}]}>حذف المهمة</Text>
                 </TouchableOpacity>
-                <TouchableOpacity style={[styles.actionBtn, {borderColor: '#f59e0b'}]} onPress={() => navigation.navigate('GlossaryManager', { novelId: job.novelId })}>
-                    <Ionicons name="book" size={24} color="#f59e0b" />
-                    <Text style={[styles.actionBtnText, {color: '#f59e0b'}]}>المسرد</Text>
+            </View>
+            <View style={[styles.actionsRow, { marginTop: 0 }]}>
+                 <TouchableOpacity style={[styles.actionBtn, {borderColor: '#4a7cc7'}]} onPress={() => navigation.navigate('GlossaryManager', { novelId: job.novelId })}>
+                    <Ionicons name="book" size={24} color="#4a7cc7" />
+                    <Text style={[styles.actionBtnText, {color: '#4a7cc7'}]}>المسرد</Text>
                 </TouchableOpacity>
             </View>
 
@@ -205,7 +262,7 @@ const styles = StyleSheet.create({
   analyticLabel: { color: '#666', fontSize: 12, marginTop: 5 },
 
   sectionTitle: { color: '#fff', fontSize: 16, fontWeight: 'bold', marginBottom: 15, textAlign: 'right' },
-  actionsRow: { flexDirection: 'row-reverse', gap: 10, marginBottom: 30 },
+  actionsRow: { flexDirection: 'row-reverse', gap: 10, marginBottom: 10 },
   
   // Glassy Button Style
   actionBtn: { 
@@ -215,7 +272,7 @@ const styles = StyleSheet.create({
   },
   actionBtnText: { fontWeight: 'bold', fontSize: 14 },
 
-  consoleContainer: { minHeight: 300, backgroundColor: 'rgba(0,0,0,0.5)' },
+  consoleContainer: { minHeight: 300, backgroundColor: 'rgba(0,0,0,0.5)', marginTop: 20 },
   consoleTitle: { color: '#888', fontSize: 12, marginBottom: 10, textAlign: 'right', borderBottomWidth: 1, borderColor: '#333', paddingBottom: 5 },
   logItem: { flexDirection: 'row-reverse', marginBottom: 8 },
   logTime: { color: '#555', fontSize: 10, width: 50, textAlign: 'left', marginRight: 10 },
