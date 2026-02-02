@@ -8,24 +8,30 @@ import {
   ScrollView,
   TextInput,
   ActivityIndicator,
-  Alert
+  StatusBar,
+  ImageBackground
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { SafeAreaView } from 'react-native-safe-area-context';
+import { LinearGradient } from 'expo-linear-gradient';
 import { useToast } from '../context/ToastContext';
 import api from '../services/api';
+
+const GlassContainer = ({ children, style }) => (
+    <View style={[styles.glassContainer, style]}>
+        {children}
+    </View>
+);
 
 export default function TranslatorSettingsScreen({ navigation }) {
   const { showToast } = useToast();
   const [loading, setLoading] = useState(true);
   
-  // Prompts
   const [transPrompt, setTransPrompt] = useState('');
-  const [extractPrompt, setExtractPrompt] = useState(''); // 🔥 Restored
+  const [extractPrompt, setExtractPrompt] = useState('');
   const [selectedModel, setSelectedModel] = useState('gemini-2.5-flash');
   
-  // API Keys Management
-  const [apiKeysText, setApiKeysText] = useState(''); // Text representation for bulk edit
+  const [apiKeysText, setApiKeysText] = useState('');
   const [savedKeysCount, setSavedKeysCount] = useState(0);
 
   const models = [
@@ -42,10 +48,9 @@ export default function TranslatorSettingsScreen({ navigation }) {
           const res = await api.get('/api/translator/settings');
           if (res.data) {
               setTransPrompt(res.data.customPrompt || '');
-              setExtractPrompt(res.data.translatorExtractPrompt || ''); // 🔥 Load Extraction Prompt
+              setExtractPrompt(res.data.translatorExtractPrompt || '');
               setSelectedModel(res.data.translatorModel || 'gemini-2.5-flash');
               
-              // Convert array to multiline string for easy editing
               const keys = res.data.translatorApiKeys || [];
               setApiKeysText(keys.join('\n'));
               setSavedKeysCount(keys.length);
@@ -59,15 +64,14 @@ export default function TranslatorSettingsScreen({ navigation }) {
 
   const handleSave = async () => {
       try {
-          // Process Keys: Split by newline, trim, remove empty
           const processedKeys = apiKeysText
               .split('\n')
               .map(k => k.trim())
-              .filter(k => k.length > 5); // Basic validation
+              .filter(k => k.length > 5);
 
           await api.post('/api/translator/settings', {
               customPrompt: transPrompt,
-              translatorExtractPrompt: extractPrompt, // 🔥 Save Extraction Prompt
+              translatorExtractPrompt: extractPrompt,
               translatorModel: selectedModel,
               translatorApiKeys: processedKeys
           });
@@ -83,111 +87,145 @@ export default function TranslatorSettingsScreen({ navigation }) {
   if (loading) {
       return (
           <View style={[styles.container, {justifyContent:'center', alignItems:'center'}]}>
-              <ActivityIndicator color="#06b6d4" size="large" />
+              <ActivityIndicator color="#fff" size="large" />
           </View>
       );
   }
 
   return (
-    <SafeAreaView style={styles.container} edges={['top']}>
-      <View style={styles.header}>
-          <Text style={styles.headerTitle}>إعدادات المترجم</Text>
-          <TouchableOpacity onPress={() => navigation.goBack()}><Ionicons name="close" size={24} color="#fff" /></TouchableOpacity>
-      </View>
+    <View style={styles.container}>
+      <StatusBar barStyle="light-content" />
+      <ImageBackground 
+        source={require('../../assets/adaptive-icon.png')} 
+        style={styles.bgImage}
+        blurRadius={20}
+      >
+          <LinearGradient colors={['rgba(0,0,0,0.6)', '#000000']} style={StyleSheet.absoluteFill} />
+      </ImageBackground>
+      
+      <SafeAreaView style={{flex: 1}} edges={['top']}>
+        <View style={styles.header}>
+            <Text style={styles.headerTitle}>إعدادات المترجم</Text>
+            <TouchableOpacity onPress={() => navigation.goBack()} style={styles.iconBtn}>
+                <Ionicons name="close" size={24} color="#fff" />
+            </TouchableOpacity>
+        </View>
 
-      <ScrollView contentContainerStyle={styles.content}>
-          
-          {/* API Keys Section */}
-          <Text style={styles.sectionLabel}>مفاتيح API (Bulk Input)</Text>
-          <Text style={styles.hint}>ضع كل مفتاح في سطر منفصل. النظام سيقوم بتنظيفها وحفظها.</Text>
-          <Text style={[styles.hint, {color: '#4ade80'}]}>الحالة الحالية: {savedKeysCount} مفتاح محفوظ.</Text>
-          
-          <TextInput 
-              style={styles.keysInput}
-              multiline
-              placeholder="AIzaSy...&#10;AIzaSy...&#10;AIzaSy..."
-              placeholderTextColor="#666"
-              value={apiKeysText}
-              onChangeText={setApiKeysText}
-              textAlignVertical="top"
-              autoCapitalize="none"
-              autoCorrect={false}
-          />
+        <ScrollView contentContainerStyle={styles.content}>
+            
+            <GlassContainer>
+                <Text style={styles.sectionLabel}>مفاتيح API (Bulk Input)</Text>
+                <Text style={styles.hint}>ضع كل مفتاح في سطر منفصل. النظام سيقوم بتنظيفها وحفظها.</Text>
+                <Text style={[styles.hint, {color: '#fff', fontWeight: 'bold'}]}>الحالة الحالية: {savedKeysCount} مفتاح محفوظ.</Text>
+                
+                <TextInput 
+                    style={styles.keysInput}
+                    multiline
+                    placeholder="AIzaSy...&#10;AIzaSy..."
+                    placeholderTextColor="#666"
+                    value={apiKeysText}
+                    onChangeText={setApiKeysText}
+                    textAlignVertical="top"
+                    autoCapitalize="none"
+                    autoCorrect={false}
+                />
+            </GlassContainer>
 
-          {/* Model Section */}
-          <Text style={styles.sectionLabel}>نموذج الذكاء الاصطناعي</Text>
-          <View style={styles.modelsContainer}>
-              {models.map((model) => (
-                  <TouchableOpacity 
-                    key={model.id}
-                    style={[styles.modelOption, selectedModel === model.id && styles.modelOptionActive]}
-                    onPress={() => setSelectedModel(model.id)}
-                  >
-                      <View style={{flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between'}}>
-                          <View>
-                              <Text style={[styles.modelName, selectedModel === model.id && {color: '#fff'}]}>{model.name}</Text>
-                              <Text style={styles.modelDesc}>{model.desc}</Text>
-                          </View>
-                          {selectedModel === model.id && <Ionicons name="checkmark-circle" size={24} color="#06b6d4" />}
-                      </View>
-                  </TouchableOpacity>
-              ))}
-          </View>
+            <Text style={styles.sectionTitle}>النموذج</Text>
+            <View style={styles.modelsContainer}>
+                {models.map((model) => (
+                    <TouchableOpacity 
+                        key={model.id}
+                        activeOpacity={0.8}
+                        onPress={() => setSelectedModel(model.id)}
+                    >
+                        <GlassContainer style={[styles.modelOption, selectedModel === model.id && styles.modelOptionActive]}>
+                            <View style={{flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', padding: 15}}>
+                                <View>
+                                    <Text style={[styles.modelName, selectedModel === model.id && {color: '#fff'}]}>{model.name}</Text>
+                                    <Text style={styles.modelDesc}>{model.desc}</Text>
+                                </View>
+                                {selectedModel === model.id && <Ionicons name="checkmark-circle" size={24} color="#fff" />}
+                            </View>
+                        </GlassContainer>
+                    </TouchableOpacity>
+                ))}
+            </View>
 
-          {/* Translation Prompt */}
-          <Text style={styles.label}>تعليمات الترجمة (Translation Prompt)</Text>
-          <Text style={styles.hint}>التعليمات الأساسية للترجمة (النبرة، الأسلوب، الضمائر).</Text>
-          <TextInput 
-              style={styles.input}
-              multiline
-              value={transPrompt}
-              onChangeText={setTransPrompt}
-              textAlignVertical="top"
-              placeholder="You are a professional translator..."
-              placeholderTextColor="#666"
-          />
+            <GlassContainer>
+                <Text style={styles.sectionLabel}>تعليمات الترجمة</Text>
+                <Text style={styles.hint}>النبرة، الأسلوب، الضمائر...</Text>
+                <TextInput 
+                    style={styles.input}
+                    multiline
+                    value={transPrompt}
+                    onChangeText={setTransPrompt}
+                    textAlignVertical="top"
+                    placeholder="You are a professional translator..."
+                    placeholderTextColor="#666"
+                />
+            </GlassContainer>
 
-          {/* 🔥 Extraction Prompt Restored */}
-          <Text style={styles.label}>تعليمات استخراج المصطلحات (Extraction Prompt)</Text>
-          <Text style={styles.hint}>تعليمات خاصة بكيفية استخراج المصطلحات الجديدة وإضافتها للمسرد.</Text>
-          <TextInput 
-              style={[styles.input, { borderColor: '#f59e0b' }]} // Distinct color
-              multiline
-              value={extractPrompt}
-              onChangeText={setExtractPrompt}
-              textAlignVertical="top"
-              placeholder="Extract proper nouns, skills, and cultivation ranks..."
-              placeholderTextColor="#666"
-          />
+            <GlassContainer style={{marginTop: 20, borderColor: 'rgba(255,255,255,0.2)'}}>
+                <Text style={[styles.sectionLabel, {color: '#fff'}]}>استخراج المصطلحات</Text>
+                <Text style={styles.hint}>كيفية استخراج المصطلحات الجديدة للمسرد.</Text>
+                <TextInput 
+                    style={styles.input}
+                    multiline
+                    value={extractPrompt}
+                    onChangeText={setExtractPrompt}
+                    textAlignVertical="top"
+                    placeholder="Extract proper nouns..."
+                    placeholderTextColor="#666"
+                />
+            </GlassContainer>
 
-          <TouchableOpacity style={styles.saveBtn} onPress={handleSave}>
-              <Text style={styles.saveText}>حفظ الإعدادات</Text>
-          </TouchableOpacity>
-      </ScrollView>
-    </SafeAreaView>
+            <TouchableOpacity style={styles.saveBtn} onPress={handleSave}>
+                <Text style={styles.saveText}>حفظ الإعدادات</Text>
+            </TouchableOpacity>
+        </ScrollView>
+      </SafeAreaView>
+    </View>
   );
 }
 
 const styles = StyleSheet.create({
   container: { flex: 1, backgroundColor: '#000' },
-  header: { flexDirection: 'row-reverse', justifyContent: 'space-between', padding: 15, borderBottomWidth: 1, borderColor: '#222' },
-  headerTitle: { color: '#fff', fontSize: 18, fontWeight: 'bold' },
+  bgImage: { ...StyleSheet.absoluteFillObject },
+  header: { flexDirection: 'row-reverse', justifyContent: 'space-between', padding: 20, alignItems: 'center' },
+  headerTitle: { color: '#fff', fontSize: 20, fontWeight: 'bold' },
+  iconBtn: { padding: 10, backgroundColor: 'rgba(255,255,255,0.1)', borderRadius: 12 },
+  
   content: { padding: 20 },
   
-  sectionLabel: { color: '#fff', fontSize: 16, fontWeight: 'bold', marginBottom: 5, textAlign: 'right', marginTop: 10 },
-  hint: { color: '#888', fontSize: 12, textAlign: 'right', marginBottom: 10 },
-
-  keysInput: { backgroundColor: '#111', borderRadius: 8, padding: 12, color: '#4ade80', borderWidth: 1, borderColor: '#333', height: 150, fontFamily: 'monospace', fontSize: 12 },
+  // Glass Container
+  glassContainer: { 
+      backgroundColor: 'rgba(20, 20, 20, 0.75)',
+      borderRadius: 16, 
+      overflow: 'hidden', 
+      padding: 15, 
+      borderWidth: 1, 
+      borderColor: 'rgba(255,255,255,0.1)' 
+  },
   
-  modelsContainer: { gap: 10, marginBottom: 25 },
-  modelOption: { backgroundColor: '#161616', padding: 15, borderRadius: 12, borderWidth: 1, borderColor: '#333' },
-  modelOptionActive: { borderColor: '#06b6d4', backgroundColor: 'rgba(6, 182, 212, 0.1)' },
+  sectionLabel: { color: '#fff', fontSize: 16, fontWeight: 'bold', marginBottom: 5, textAlign: 'right' },
+  hint: { color: '#888', fontSize: 12, textAlign: 'right', marginBottom: 15 },
+  sectionTitle: { color: '#fff', fontSize: 18, fontWeight: 'bold', marginBottom: 15, marginTop: 25, textAlign: 'right' },
+
+  keysInput: { backgroundColor: 'rgba(0,0,0,0.5)', borderRadius: 8, padding: 12, color: '#fff', borderWidth: 1, borderColor: '#333', height: 150, fontFamily: 'monospace', fontSize: 12 },
+  input: { backgroundColor: 'rgba(0,0,0,0.5)', color: '#ccc', borderRadius: 10, padding: 15, minHeight: 120, borderWidth: 1, borderColor: '#333', textAlign: 'left' },
+
+  modelsContainer: { gap: 10 },
+  modelOption: { borderRadius: 16, overflow: 'hidden' },
+  modelOptionActive: { borderColor: '#fff', borderWidth: 1 },
   modelName: { color: '#ccc', fontSize: 16, fontWeight: 'bold', textAlign: 'left' },
   modelDesc: { color: '#666', fontSize: 12, marginTop: 4, textAlign: 'left' },
 
-  label: { color: '#06b6d4', marginBottom: 5, marginTop: 20, textAlign: 'right', fontWeight: 'bold' },
-  input: { backgroundColor: '#161616', color: '#ccc', borderRadius: 10, padding: 15, minHeight: 120, borderWidth: 1, borderColor: '#333', textAlign: 'left' },
-  
-  saveBtn: { backgroundColor: '#06b6d4', padding: 15, borderRadius: 10, alignItems: 'center', marginTop: 40, marginBottom: 50 },
+  // Glassy Button
+  saveBtn: { 
+      marginTop: 40, marginBottom: 50, borderRadius: 16, overflow: 'hidden', 
+      backgroundColor: 'rgba(255,255,255,0.08)', borderWidth: 1, borderColor: 'rgba(255,255,255,0.2)',
+      padding: 18, alignItems: 'center'
+  },
   saveText: { color: '#fff', fontWeight: 'bold', fontSize: 16 }
 });
