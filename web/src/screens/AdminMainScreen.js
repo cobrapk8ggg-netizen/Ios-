@@ -7,7 +7,9 @@ import {
   TouchableOpacity,
   ScrollView,
   Dimensions,
-  ActivityIndicator
+  ActivityIndicator,
+  StatusBar,
+  ImageBackground
 } from 'react-native';
 import { LinearGradient } from 'expo-linear-gradient';
 import { Ionicons } from '@expo/vector-icons';
@@ -16,6 +18,22 @@ import { AuthContext } from '../context/AuthContext';
 import api from '../services/api';
 
 const { width } = Dimensions.get('window');
+
+// Glass Container for consistency (Same as AdminDashboard)
+const GlassCard = ({ children, style, onPress }) => (
+    <TouchableOpacity 
+        style={[styles.glassCard, style]} 
+        onPress={onPress}
+        activeOpacity={0.9}
+        disabled={!onPress}
+    >
+        <LinearGradient
+            colors={['rgba(20, 20, 20, 0.7)', 'rgba(20, 20, 20, 0.9)']}
+            style={StyleSheet.absoluteFill}
+        />
+        {children}
+    </TouchableOpacity>
+);
 
 export default function AdminMainScreen({ navigation }) {
   const { userInfo } = useContext(AuthContext);
@@ -43,37 +61,32 @@ export default function AdminMainScreen({ navigation }) {
       }
   };
 
-  const DashboardCard = ({ title, icon, color, onPress, subtitle }) => (
-      <TouchableOpacity 
-        style={styles.cardContainer} 
-        onPress={onPress}
-        activeOpacity={0.9}
-      >
-          <LinearGradient
-              colors={[color + '20', '#161616']}
-              start={{ x: 0, y: 0 }}
-              end={{ x: 1, y: 1 }}
-              style={styles.cardGradient}
-          >
-              <View style={[styles.iconBox, { backgroundColor: color + '30' }]}>
-                  <Ionicons name={icon} size={28} color={color} />
-              </View>
-              <View style={styles.cardContent}>
-                  <Text style={styles.cardTitle}>{title}</Text>
-                  {subtitle && <Text style={styles.cardSubtitle}>{subtitle}</Text>}
-              </View>
-              <Ionicons name="chevron-back" size={20} color="#444" />
-          </LinearGradient>
-      </TouchableOpacity>
+  const DashboardButton = ({ title, icon, color, onPress, subtitle }) => (
+      <GlassCard onPress={onPress} style={styles.dashboardBtn}>
+          <View style={[styles.iconCircle, { backgroundColor: `${color}20` }]}>
+              <Ionicons name={icon} size={28} color={color} />
+          </View>
+          <View style={styles.btnContent}>
+              <Text style={styles.btnTitle}>{title}</Text>
+              {subtitle && <Text style={styles.btnSubtitle}>{subtitle}</Text>}
+          </View>
+          <Ionicons name="chevron-back" size={20} color="#444" />
+      </GlassCard>
   );
 
   return (
     <View style={styles.container}>
-      <LinearGradient
-        colors={['rgba(74, 124, 199, 0.15)', '#000000']}
-        style={styles.background}
-      />
+      <StatusBar barStyle="light-content" />
       
+      {/* BACKGROUND EXACTLY LIKE ADMIN DASHBOARD */}
+      <ImageBackground 
+        source={require('../../assets/adaptive-icon.png')} 
+        style={styles.bgImage}
+        blurRadius={20}
+      >
+          <LinearGradient colors={['rgba(0,0,0,0.6)', '#000000']} style={StyleSheet.absoluteFill} />
+      </ImageBackground>
+
       <SafeAreaView style={styles.safeArea}>
         {/* Header */}
         <View style={styles.header}>
@@ -88,70 +101,69 @@ export default function AdminMainScreen({ navigation }) {
 
         <ScrollView contentContainerStyle={styles.content}>
             
-            {/* Quick Stats */}
-            <View style={styles.statsRow}>
-                <View style={styles.statBox}>
+            {/* Quick Stats Grid */}
+            <View style={styles.statsContainer}>
+                <GlassCard style={styles.statCard}>
                     <Text style={styles.statNumber}>{loading ? '...' : stats.users}</Text>
                     <Text style={styles.statLabel}>المستخدمين</Text>
-                </View>
-                <View style={[styles.statBox, {borderLeftWidth:1, borderRightWidth:1, borderColor:'#333'}]}>
+                    <Ionicons name="people" size={20} color="#a855f7" style={styles.statIcon} />
+                </GlassCard>
+                
+                <GlassCard style={styles.statCard}>
                     <Text style={styles.statNumber}>{loading ? '...' : stats.novels}</Text>
                     <Text style={styles.statLabel}>الروايات</Text>
-                </View>
-                <View style={styles.statBox}>
-                    <Text style={styles.statNumber}>Zeus</Text>
-                    <Text style={styles.statLabel}>النظام</Text>
-                </View>
+                    <Ionicons name="library" size={20} color="#3b82f6" style={styles.statIcon} />
+                </GlassCard>
             </View>
 
-            <Text style={styles.sectionTitle}>الوصول السريع</Text>
-
+            <Text style={styles.sectionTitle}>الذكاء الاصطناعي</Text>
             <View style={styles.grid}>
-                
-                {/* 🔥 NEW CARD FOR TRANSLATOR AI */}
-                <DashboardCard 
+                <DashboardButton 
                     title="المترجم الذكي (AI)" 
                     subtitle="إدارة الترجمة الآلية، المفاتيح، المسرد"
                     icon="language" 
-                    color="#06b6d4" // Cyan
+                    color="#06b6d4" 
                     onPress={() => navigation.navigate('TranslatorHub')}
                 />
-
-                <DashboardCard 
+                <DashboardButton 
                     title="الاستيراد الآلي (Scraper)" 
                     subtitle="سحب الروايات من المواقع الخارجية"
                     icon="planet" 
                     color="#8b5cf6" 
                     onPress={() => navigation.navigate('AutoImport')}
                 />
+            </View>
 
-                <DashboardCard 
-                    title="النشر المتعدد (Bulk)" 
-                    subtitle="رفع ملف ZIP يحتوي على الفصول"
+            <Text style={styles.sectionTitle}>الإدارة العامة</Text>
+            <View style={styles.grid}>
+                <DashboardButton 
+                    title="إدارة المستخدمين" 
+                    subtitle="الصلاحيات، الحظر، الحذف"
+                    icon="people-circle" 
+                    color="#f43f5e" 
+                    onPress={() => navigation.navigate('UsersManagement')}
+                />
+                <DashboardButton 
+                    title="إدارة الروايات" 
+                    subtitle="تعديل، حذف، إضافة فصول"
+                    icon="book" 
+                    color="#3b82f6" 
+                    onPress={() => navigation.navigate('Management')}
+                />
+            </View>
+
+            <Text style={styles.sectionTitle}>أدوات النشر</Text>
+            <View style={styles.grid}>
+                <DashboardButton 
+                    title="النشر المتعدد (ZIP)" 
+                    subtitle="رفع ملف مضغوط للفصول"
                     icon="cloud-upload" 
                     color="#f59e0b" 
                     onPress={() => navigation.navigate('BulkUpload')}
                 />
-
-                <DashboardCard 
-                    title="إدارة المستخدمين" 
-                    subtitle="الصلاحيات، الحظر، الحذف"
-                    icon="people" 
-                    color="#a855f7" 
-                    onPress={() => navigation.navigate('UsersManagement')}
-                />
-                
-                <DashboardCard 
-                    title="إدارة الروايات" 
-                    subtitle="تعديل، حذف، إضافة فصول"
-                    icon="library" 
-                    color="#3b82f6" 
-                    onPress={() => navigation.navigate('Management')}
-                />
-
-                <DashboardCard 
+                <DashboardButton 
                     title="إنشاء عمل جديد" 
-                    subtitle="إضافة رواية جديدة للنظام"
+                    subtitle="إضافة رواية جديدة يدوياً"
                     icon="add-circle" 
                     color="#10b981" 
                     onPress={() => navigation.navigate('AdminDashboard')}
@@ -166,7 +178,7 @@ export default function AdminMainScreen({ navigation }) {
 
 const styles = StyleSheet.create({
   container: { flex: 1, backgroundColor: '#000' },
-  background: { position: 'absolute', left: 0, right: 0, top: 0, height: 400 },
+  bgImage: { ...StyleSheet.absoluteFillObject },
   safeArea: { flex: 1 },
   header: {
       flexDirection: 'row',
@@ -179,37 +191,35 @@ const styles = StyleSheet.create({
   roleText: { fontSize: 14, color: '#4a7cc7', marginTop: 4, textAlign: 'right', fontWeight: '600' },
   closeBtn: { padding: 10, backgroundColor: 'rgba(255,255,255,0.1)', borderRadius: 12 },
   
-  content: { padding: 20 },
+  content: { padding: 20, paddingBottom: 50 },
   
-  statsRow: {
-      flexDirection: 'row',
-      backgroundColor: '#161616',
-      borderRadius: 16,
-      padding: 20,
-      marginBottom: 30,
-      borderWidth: 1,
-      borderColor: '#333'
-  },
-  statBox: { flex: 1, alignItems: 'center' },
-  statNumber: { color: '#fff', fontSize: 20, fontWeight: 'bold', marginBottom: 4 },
-  statLabel: { color: '#888', fontSize: 12 },
-
-  sectionTitle: { color: '#fff', fontSize: 18, fontWeight: 'bold', marginBottom: 15, textAlign: 'right' },
-  
-  grid: { gap: 15 },
-  cardContainer: {
+  // Glass Card Base (Matched AdminDashboard)
+  glassCard: {
       borderRadius: 16,
       overflow: 'hidden',
-      marginBottom: 5,
       borderWidth: 1,
-      borderColor: '#2a2a2a'
+      borderColor: 'rgba(255,255,255,0.1)',
+      position: 'relative'
   },
-  cardGradient: {
+
+  // Stats
+  statsContainer: { flexDirection: 'row', gap: 15, marginBottom: 30 },
+  statCard: { flex: 1, padding: 20, alignItems: 'center', justifyContent: 'center' },
+  statNumber: { color: '#fff', fontSize: 24, fontWeight: 'bold', marginBottom: 5 },
+  statLabel: { color: '#888', fontSize: 12 },
+  statIcon: { position: 'absolute', top: 10, left: 10, opacity: 0.8 },
+
+  sectionTitle: { color: '#fff', fontSize: 18, fontWeight: 'bold', marginBottom: 15, marginTop: 10, textAlign: 'right' },
+  
+  grid: { gap: 12 },
+  
+  // Dashboard Buttons
+  dashboardBtn: {
       flexDirection: 'row-reverse',
       alignItems: 'center',
-      padding: 20,
+      padding: 15,
   },
-  iconBox: {
+  iconCircle: {
       width: 50,
       height: 50,
       borderRadius: 15,
@@ -217,7 +227,7 @@ const styles = StyleSheet.create({
       alignItems: 'center',
       marginLeft: 15
   },
-  cardContent: { flex: 1 },
-  cardTitle: { color: '#fff', fontSize: 16, fontWeight: 'bold', textAlign: 'right', marginBottom: 4 },
-  cardSubtitle: { color: '#888', fontSize: 12, textAlign: 'right' },
+  btnContent: { flex: 1 },
+  btnTitle: { color: '#fff', fontSize: 16, fontWeight: 'bold', textAlign: 'right', marginBottom: 4 },
+  btnSubtitle: { color: '#888', fontSize: 12, textAlign: 'right' },
 });
