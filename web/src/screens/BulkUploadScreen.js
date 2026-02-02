@@ -1,3 +1,4 @@
+
 import React, { useState, useEffect, useContext } from 'react';
 import {
   View,
@@ -8,8 +9,8 @@ import {
   ActivityIndicator,
   FlatList,
   Modal,
-  Platform,
-  Alert
+  StatusBar,
+  ImageBackground
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { SafeAreaView } from 'react-native-safe-area-context';
@@ -19,6 +20,13 @@ import api from '../services/api';
 import { useToast } from '../context/ToastContext';
 import { AuthContext } from '../context/AuthContext';
 
+// Glass Component
+const GlassContainer = ({ children, style }) => (
+    <View style={[styles.glassContainer, style]}>
+        {children}
+    </View>
+);
+
 export default function BulkUploadScreen({ navigation }) {
   const { userInfo } = useContext(AuthContext);
   const { showToast } = useToast();
@@ -26,15 +34,10 @@ export default function BulkUploadScreen({ navigation }) {
   const [loading, setLoading] = useState(false);
   const [fetchingNovels, setFetchingNovels] = useState(true);
   
-  // Selection States
   const [novelsList, setNovelsList] = useState([]);
   const [selectedNovel, setSelectedNovel] = useState(null);
   const [selectedFile, setSelectedFile] = useState(null);
-  
-  // Modal State
   const [showNovelPicker, setShowNovelPicker] = useState(false);
-
-  // Status Log
   const [logs, setLogs] = useState([]);
 
   useEffect(() => {
@@ -45,8 +48,6 @@ export default function BulkUploadScreen({ navigation }) {
     try {
         const res = await api.get('/api/novels?limit=100');
         let list = res.data.novels || [];
-        
-        // Filter if not super admin
         if (userInfo && userInfo.role !== 'admin') {
             list = list.filter(n => 
                 (n.authorEmail && n.authorEmail === userInfo.email) ||
@@ -55,7 +56,6 @@ export default function BulkUploadScreen({ navigation }) {
         }
         setNovelsList(list);
     } catch(e) { 
-        console.log(e);
         showToast("فشل جلب قائمة الروايات", "error");
     } finally {
         setFetchingNovels(false);
@@ -68,31 +68,20 @@ export default function BulkUploadScreen({ navigation }) {
             type: ['application/zip', 'application/x-zip-compressed'],
             copyToCacheDirectory: true
         });
-
         if (result.canceled) return;
-
         const asset = result.assets ? result.assets[0] : result;
-        if (asset) {
-            setSelectedFile(asset);
-        }
+        if (asset) setSelectedFile(asset);
     } catch (err) {
-        console.error(err);
         showToast("فشل اختيار الملف", "error");
     }
   };
 
   const handleUpload = async () => {
-      if (!selectedNovel) {
-          showToast("يرجى اختيار الرواية أولاً", "error");
-          return;
-      }
-      if (!selectedFile) {
-          showToast("يرجى اختيار ملف ZIP", "error");
-          return;
-      }
+      if (!selectedNovel) { showToast("يرجى اختيار الرواية أولاً", "error"); return; }
+      if (!selectedFile) { showToast("يرجى اختيار ملف ZIP", "error"); return; }
 
       setLoading(true);
-      setLogs([]); // Clear previous logs
+      setLogs([]);
 
       try {
           const formData = new FormData();
@@ -104,9 +93,7 @@ export default function BulkUploadScreen({ navigation }) {
           });
 
           const response = await api.post('/api/admin/chapters/bulk-upload', formData, {
-              headers: {
-                  'Content-Type': 'multipart/form-data',
-              },
+              headers: { 'Content-Type': 'multipart/form-data' },
           });
 
           const { successCount, errors } = response.data;
@@ -120,211 +107,184 @@ export default function BulkUploadScreen({ navigation }) {
           }
 
       } catch (error) {
-          console.error(error);
           const msg = error.response?.data?.message || "حدث خطأ أثناء الرفع";
           showToast(msg, "error");
           setLogs([`❌ خطأ فادح: ${msg}`]);
-      } finally {
-          setLoading(false);
-      }
+      } finally { setLoading(false); }
   };
 
   return (
-    <SafeAreaView style={styles.container} edges={['top']}>
-      {/* Header */}
-      <View style={styles.header}>
-        <TouchableOpacity onPress={() => navigation.goBack()} style={styles.backButton}>
-            <Ionicons name="arrow-forward" size={24} color="#fff" />
-        </TouchableOpacity>
-        <Text style={styles.headerTitle}>النشر المتعدد</Text>
-        <View style={{width: 40}} />
-      </View>
-
-      <ScrollView contentContainerStyle={styles.content}>
-        <Text style={styles.description}>
-            قم برفع ملف ZIP يحتوي على ملفات نصية (.txt). سيتم استخراج رقم الفصل من اسم الملف (مثال: 10.txt) والعنوان من السطر الأول داخل الملف.
-        </Text>
-
-        {/* 1. Novel Selector */}
-        <View style={styles.section}>
-            <Text style={styles.label}>1. اختر الرواية</Text>
-            <TouchableOpacity 
-                style={styles.selectorBtn} 
-                onPress={() => setShowNovelPicker(true)}
-                disabled={fetchingNovels}
-            >
-                {fetchingNovels ? (
-                    <ActivityIndicator color="#666" />
-                ) : (
-                    <>
-                        <Ionicons name="chevron-down" size={20} color="#666" />
-                        <Text style={[styles.selectorText, selectedNovel && {color: '#4a7cc7', fontWeight: 'bold'}]}>
-                            {selectedNovel ? selectedNovel.title : "اضغط للاختيار من القائمة"}
-                        </Text>
-                    </>
-                )}
+    <View style={styles.container}>
+      <StatusBar barStyle="light-content" />
+      <ImageBackground 
+        source={require('../../assets/adaptive-icon.png')} 
+        style={styles.bgImage}
+        blurRadius={20}
+      >
+          <LinearGradient colors={['rgba(0,0,0,0.6)', '#000000']} style={StyleSheet.absoluteFill} />
+      </ImageBackground>
+      
+      <SafeAreaView style={{flex: 1}} edges={['top']}>
+        <View style={styles.header}>
+            <TouchableOpacity onPress={() => navigation.goBack()} style={styles.iconBtn}>
+                <Ionicons name="arrow-forward" size={24} color="#fff" />
             </TouchableOpacity>
+            <Text style={styles.headerTitle}>النشر المتعدد</Text>
+            <View style={{width: 40}} />
         </View>
 
-        {/* 2. File Picker */}
-        <View style={styles.section}>
-            <Text style={styles.label}>2. ملف الفصول (ZIP)</Text>
-            <TouchableOpacity style={styles.filePickerBtn} onPress={pickZipFile}>
-                {selectedFile ? (
-                    <View style={styles.fileInfo}>
-                        <Ionicons name="document-text" size={32} color="#4ade80" />
-                        <Text style={styles.fileName}>{selectedFile.name}</Text>
-                        <Text style={styles.fileSize}>{(selectedFile.size / 1024 / 1024).toFixed(2)} MB</Text>
-                    </View>
-                ) : (
-                    <View style={styles.filePlaceholder}>
-                        <Ionicons name="cloud-upload-outline" size={40} color="#666" />
-                        <Text style={styles.filePlaceholderText}>اضغط لاختيار ملف .zip</Text>
-                    </View>
-                )}
-            </TouchableOpacity>
-        </View>
+        <ScrollView contentContainerStyle={styles.content}>
+            <GlassContainer style={styles.descriptionBox}>
+                <Text style={styles.description}>
+                    قم برفع ملف ZIP يحتوي على ملفات نصية (.txt). سيتم استخراج رقم الفصل من اسم الملف (مثال: 10.txt) والعنوان من السطر الأول داخل الملف.
+                </Text>
+            </GlassContainer>
 
-        {/* 3. Action Button */}
-        <TouchableOpacity 
-            style={[styles.uploadBtn, (!selectedNovel || !selectedFile || loading) && styles.disabledBtn]} 
-            onPress={handleUpload}
-            disabled={!selectedNovel || !selectedFile || loading}
-        >
-            {loading ? (
-                <ActivityIndicator color="#000" />
-            ) : (
-                <LinearGradient
-                    colors={(!selectedNovel || !selectedFile) ? ['#333', '#333'] : ['#f59e0b', '#d97706']}
-                    start={{ x: 0, y: 0 }}
-                    end={{ x: 1, y: 0 }}
-                    style={StyleSheet.absoluteFill}
-                />
-            )}
-            {!loading && <Text style={styles.uploadBtnText}>بدء المعالجة والنشر</Text>}
-        </TouchableOpacity>
-
-        {/* Logs Console */}
-        {logs.length > 0 && (
-            <View style={styles.logsContainer}>
-                <Text style={styles.logsTitle}>سجل العملية:</Text>
-                {logs.map((log, index) => (
-                    <Text key={index} style={[styles.logText, log.includes('❌') && {color: '#ff6b6b'}]}>
-                        {log}
-                    </Text>
-                ))}
+            <View style={styles.section}>
+                <Text style={styles.label}>1. اختر الرواية</Text>
+                <GlassContainer>
+                    <TouchableOpacity 
+                        style={styles.selectorBtn} 
+                        onPress={() => setShowNovelPicker(true)}
+                        disabled={fetchingNovels}
+                    >
+                        {fetchingNovels ? (
+                            <ActivityIndicator color="#666" />
+                        ) : (
+                            <>
+                                <Ionicons name="chevron-down" size={20} color="#666" />
+                                <Text style={[styles.selectorText, selectedNovel && {color: '#fff', fontWeight: 'bold'}]}>
+                                    {selectedNovel ? selectedNovel.title : "اضغط للاختيار من القائمة"}
+                                </Text>
+                            </>
+                        )}
+                    </TouchableOpacity>
+                </GlassContainer>
             </View>
-        )}
 
-      </ScrollView>
+            <View style={styles.section}>
+                <Text style={styles.label}>2. ملف الفصول (ZIP)</Text>
+                <GlassContainer>
+                    <TouchableOpacity style={styles.filePickerBtn} onPress={pickZipFile}>
+                        {selectedFile ? (
+                            <View style={styles.fileInfo}>
+                                <Ionicons name="document-text" size={32} color="#fff" />
+                                <Text style={styles.fileName}>{selectedFile.name}</Text>
+                                <Text style={styles.fileSize}>{(selectedFile.size / 1024 / 1024).toFixed(2)} MB</Text>
+                            </View>
+                        ) : (
+                            <View style={styles.filePlaceholder}>
+                                <Ionicons name="cloud-upload-outline" size={40} color="#666" />
+                                <Text style={styles.filePlaceholderText}>اضغط لاختيار ملف .zip</Text>
+                            </View>
+                        )}
+                    </TouchableOpacity>
+                </GlassContainer>
+            </View>
 
-      {/* Novel Picker Modal */}
-      <Modal visible={showNovelPicker} transparent animationType="slide">
-          <View style={styles.modalBg}>
-              <View style={styles.modalContent}>
-                  <Text style={styles.modalTitle}>اختر رواية للنشر</Text>
-                  {novelsList.length === 0 ? (
-                      <Text style={styles.emptyText}>لا توجد روايات متاحة.</Text>
-                  ) : (
-                      <FlatList
+            <TouchableOpacity 
+                style={[styles.uploadBtn, (!selectedNovel || !selectedFile || loading) && styles.disabledBtn]} 
+                onPress={handleUpload}
+                disabled={!selectedNovel || !selectedFile || loading}
+            >
+                {loading ? (
+                    <ActivityIndicator color="#fff" />
+                ) : (
+                    <Text style={styles.uploadBtnText}>بدء المعالجة والنشر</Text>
+                )}
+            </TouchableOpacity>
+
+            {logs.length > 0 && (
+                <GlassContainer style={styles.logsContainer}>
+                    <Text style={styles.logsTitle}>سجل العملية:</Text>
+                    {logs.map((log, index) => (
+                        <Text key={index} style={[styles.logText, log.includes('❌') && {color: '#ff6b6b'}]}>
+                            {log}
+                        </Text>
+                    ))}
+                </GlassContainer>
+            )}
+
+        </ScrollView>
+
+        <Modal visible={showNovelPicker} transparent animationType="slide">
+            <View style={styles.modalBg}>
+                <View style={styles.modalContent}>
+                    <Text style={styles.modalTitle}>اختر رواية للنشر</Text>
+                    <FlatList
                         data={novelsList}
                         keyExtractor={item => item._id}
                         renderItem={({item}) => (
                             <TouchableOpacity style={styles.modalItem} onPress={() => { setSelectedNovel(item); setShowNovelPicker(false); }}>
                                 <Text style={styles.modalItemText}>{item.title}</Text>
-                                {selectedNovel?._id === item._id && <Ionicons name="checkmark" size={18} color="#4a7cc7" />}
+                                {selectedNovel?._id === item._id && <Ionicons name="checkmark" size={18} color="#fff" />}
                             </TouchableOpacity>
                         )}
-                      />
-                  )}
-                  <TouchableOpacity style={styles.closeBtn} onPress={() => setShowNovelPicker(false)}>
-                      <Text style={{color: '#fff'}}>إغلاق</Text>
-                  </TouchableOpacity>
-              </View>
-          </View>
-      </Modal>
-
-    </SafeAreaView>
+                    />
+                    <TouchableOpacity style={styles.closeBtn} onPress={() => setShowNovelPicker(false)}>
+                        <Text style={{color: '#fff'}}>إغلاق</Text>
+                    </TouchableOpacity>
+                </View>
+            </View>
+        </Modal>
+      </SafeAreaView>
+    </View>
   );
 }
 
 const styles = StyleSheet.create({
   container: { flex: 1, backgroundColor: '#000' },
-  header: {
-      flexDirection: 'row',
-      justifyContent: 'space-between',
-      alignItems: 'center',
-      padding: 15,
-      borderBottomWidth: 1,
-      borderColor: '#222'
-  },
-  headerTitle: { fontSize: 18, fontWeight: 'bold', color: '#fff' },
-  backButton: { padding: 5, borderRadius: 20, backgroundColor: '#1a1a1a' },
+  bgImage: { ...StyleSheet.absoluteFillObject },
+  header: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', padding: 20 },
+  headerTitle: { fontSize: 20, fontWeight: 'bold', color: '#fff' },
+  iconBtn: { padding: 10, backgroundColor: 'rgba(255,255,255,0.1)', borderRadius: 12 },
   
   content: { padding: 20 },
-  description: { color: '#888', textAlign: 'right', marginBottom: 30, lineHeight: 22 },
+  
+  // Glass Container
+  glassContainer: { 
+      backgroundColor: 'rgba(20, 20, 20, 0.75)',
+      borderRadius: 16, 
+      overflow: 'hidden', 
+      padding: 1, 
+      borderColor: 'rgba(255,255,255,0.1)', 
+      borderWidth: 1, 
+      position: 'relative' 
+  },
+  
+  descriptionBox: { marginBottom: 25 },
+  description: { color: '#ccc', textAlign: 'right', lineHeight: 22, padding: 15 },
   
   section: { marginBottom: 25 },
   label: { color: '#fff', fontSize: 16, fontWeight: 'bold', marginBottom: 10, textAlign: 'right' },
   
-  selectorBtn: {
-      flexDirection: 'row',
-      justifyContent: 'space-between', // Changed to put text on right (RTL logic via flex)
-      alignItems: 'center',
-      backgroundColor: '#161616',
-      padding: 15,
-      borderRadius: 12,
-      borderWidth: 1,
-      borderColor: '#333'
-  },
+  selectorBtn: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', padding: 15 },
   selectorText: { color: '#ccc', fontSize: 14 },
 
-  filePickerBtn: {
-      height: 150,
-      backgroundColor: '#161616',
-      borderRadius: 12,
-      borderWidth: 2,
-      borderColor: '#333',
-      borderStyle: 'dashed',
-      justifyContent: 'center',
-      alignItems: 'center'
-  },
+  filePickerBtn: { height: 150, justifyContent: 'center', alignItems: 'center', backgroundColor: 'rgba(0,0,0,0.3)' },
   filePlaceholder: { alignItems: 'center', gap: 10 },
   filePlaceholderText: { color: '#666' },
-  
   fileInfo: { alignItems: 'center', gap: 5 },
   fileName: { color: '#fff', fontWeight: 'bold', fontSize: 16 },
   fileSize: { color: '#888', fontSize: 12 },
 
-  uploadBtn: {
-      height: 55,
-      borderRadius: 12,
-      overflow: 'hidden',
-      justifyContent: 'center',
-      alignItems: 'center',
-      marginTop: 20,
-      position: 'relative' // needed for absolute fill gradient
+  // Glassy Button
+  uploadBtn: { 
+      height: 55, borderRadius: 16, overflow: 'hidden', 
+      justifyContent: 'center', alignItems: 'center', marginTop: 10,
+      backgroundColor: 'rgba(255,255,255,0.08)', borderWidth: 1, borderColor: 'rgba(255,255,255,0.2)'
   },
-  disabledBtn: { opacity: 0.5 },
-  uploadBtnText: { color: '#000', fontSize: 16, fontWeight: 'bold', zIndex: 1 },
+  disabledBtn: { opacity: 0.5, backgroundColor: 'rgba(50,50,50,0.5)', borderColor: '#333' },
+  uploadBtnText: { color: '#fff', fontSize: 16, fontWeight: 'bold' },
 
-  logsContainer: {
-      marginTop: 30,
-      backgroundColor: '#111',
-      padding: 15,
-      borderRadius: 8,
-      borderWidth: 1,
-      borderColor: '#333'
-  },
+  logsContainer: { marginTop: 30, padding: 15 },
   logsTitle: { color: '#fff', fontWeight: 'bold', marginBottom: 10, textAlign: 'right' },
   logText: { color: '#4ade80', fontSize: 12, marginBottom: 4, textAlign: 'right' },
 
-  // Modal
   modalBg: { flex: 1, backgroundColor: 'rgba(0,0,0,0.8)', justifyContent: 'center', padding: 20 },
-  modalContent: { backgroundColor: '#161616', borderRadius: 16, padding: 20, maxHeight: '70%' },
+  modalContent: { backgroundColor: '#161616', borderRadius: 16, padding: 20, maxHeight: '60%', borderWidth: 1, borderColor: '#333' },
   modalTitle: { color: '#fff', fontSize: 18, fontWeight: 'bold', textAlign: 'center', marginBottom: 20 },
-  emptyText: { color: '#666', textAlign: 'center', padding: 20 },
   modalItem: { flexDirection: 'row-reverse', justifyContent: 'space-between', padding: 15, borderBottomWidth: 1, borderColor: '#222' },
   modalItemText: { color: '#ccc', fontSize: 16 },
-  closeBtn: { marginTop: 20, alignItems: 'center', padding: 15, backgroundColor: '#333', borderRadius: 8 },
+  closeBtn: { marginTop: 20, alignItems: 'center', padding: 15, backgroundColor: '#333', borderRadius: 12 },
 });
