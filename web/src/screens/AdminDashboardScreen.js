@@ -12,7 +12,8 @@ import {
   Modal,
   ImageBackground,
   Dimensions,
-  StatusBar
+  StatusBar,
+  Keyboard
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { SafeAreaView } from 'react-native-safe-area-context';
@@ -60,6 +61,11 @@ export default function AdminDashboardScreen({ route, navigation }) {
 
   const [novelChapters, setNovelChapters] = useState([]);
   const [chaptersLoading, setChaptersLoading] = useState(false);
+
+  // --- BATCH SELECTION STATE ---
+  const [isSelectionMode, setIsSelectionMode] = useState(false);
+  const [selectedChapNums, setSelectedChapNums] = useState([]); // Array of Numbers
+  const [batchRangeInput, setBatchRangeInput] = useState('');
 
   // Single Chapter State
   const [selectedNovelId, setSelectedNovelId] = useState(editChapterData?.novelId || addChapterMode?.novelId || editNovelData?._id || '');
@@ -314,6 +320,88 @@ export default function AdminDashboardScreen({ route, navigation }) {
       setAlertVisible(true);
   };
 
+  // --- BATCH SELECTION LOGIC ---
+  const handleLongPressChapter = (chapNum) => {
+      setIsSelectionMode(true);
+      setSelectedChapNums([chapNum]);
+  };
+
+  const handleToggleSelection = (chapNum) => {
+      if (selectedChapNums.includes(chapNum)) {
+          const newVal = selectedChapNums.filter(n => n !== chapNum);
+          setSelectedChapNums(newVal);
+          if (newVal.length === 0) setIsSelectionMode(false);
+      } else {
+          setSelectedChapNums([...selectedChapNums, chapNum]);
+      }
+  };
+
+  const handleSelectAll = () => {
+      if (selectedChapNums.length === novelChapters.length) {
+          setSelectedChapNums([]);
+          setIsSelectionMode(false);
+      } else {
+          setSelectedChapNums(novelChapters.map(c => c.number));
+      }
+  };
+
+  const handleRangeSelection = () => {
+      if (!batchRangeInput.trim()) return;
+      const rangeParts = batchRangeInput.split('-');
+      
+      let start = parseInt(rangeParts[0]);
+      let end = parseInt(rangeParts[1]);
+      
+      if (isNaN(start) || isNaN(end)) {
+          showToast("صيغة غير صحيحة (مثال: 100-200)", "error");
+          return;
+      }
+
+      if (start > end) [start, end] = [end, start]; // swap if inverted
+
+      const newSelection = [];
+      const availableNums = novelChapters.map(c => c.number);
+      
+      for (let i = start; i <= end; i++) {
+          if (availableNums.includes(i)) {
+              newSelection.push(i);
+          }
+      }
+
+      setSelectedChapNums(prev => [...new Set([...prev, ...newSelection])]);
+      setBatchRangeInput('');
+      Keyboard.dismiss();
+      showToast(`تم تحديد ${newSelection.length} فصل`, "success");
+  };
+
+  const handleBatchDelete = () => {
+      if (selectedChapNums.length === 0) return;
+      
+      setAlertConfig({
+          title: "حذف متعدد",
+          message: `هل أنت متأكد من حذف ${selectedChapNums.length} فصل؟`,
+          type: 'danger',
+          onConfirm: async () => {
+              setAlertVisible(false);
+              setChaptersLoading(true);
+              try {
+                  await api.post('/api/admin/chapters/batch-delete', {
+                      novelId: editNovelData._id,
+                      chapterNumbers: selectedChapNums
+                  });
+                  showToast("تم الحذف بنجاح", "success");
+                  setIsSelectionMode(false);
+                  setSelectedChapNums([]);
+                  await fetchNovelChapters(editNovelData._id);
+              } catch (e) {
+                  showToast("فشل الحذف الجماعي", "error");
+                  setChaptersLoading(false);
+              }
+          }
+      });
+      setAlertVisible(true);
+  };
+
   const statusOptions = ['مستمرة', 'مكتملة', 'متوقفة', 'خاصة'];
 
   const prepareEditChapter = async (chapter) => {
@@ -386,7 +474,7 @@ export default function AdminDashboardScreen({ route, navigation }) {
               </View>
           )}
 
-          <ScrollView contentContainerStyle={styles.content}>
+          <ScrollView contentContainerStyle={styles.content} scrollEnabled={activeTab !== 'chapters_list'}>
             
             {/* NOVEL DETAILS FORM */}
             {activeTab === 'novel' && (
@@ -520,25 +608,80 @@ export default function AdminDashboardScreen({ route, navigation }) {
                 </View>
             )}
 
-            {/* CHAPTERS LIST */}
+            {/* CHAPTERS LIST (With Batch Selection) */}
             {activeTab === 'chapters_list' && (
-                 <View style={{flex: 1}}>
-                     <TouchableOpacity style={styles.addChapterCard} onPress={prepareAddChapter}>
-                         <View style={styles.addChapterContent}>
-                             <Ionicons name="add-circle-outline" size={32} color="#fff" />
-                             <Text style={{color: '#fff', fontWeight: 'bold', marginTop: 5}}>إضافة فصل جديد</Text>
+                 <View style={{flex: 1, minHeight: Dimensions.get('window').height * 0.7}}>
+                     {isSelectionMode ? (
+                         <View style={styles.selectionBar}>
+                             <View style={{flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginBottom: 10}}>
+                                 <TouchableOpacity onPress={() => { setIsSelectionMode(false); setSelectedChapNums([]); }}>
+                                     <Text style={{color: '#ff4444', fontWeight: 'bold'}}>إلغاء</Text>
+                                 </TouchableOpacity>
+                                 <Text style={{color: '#fff', fontWeight: 'bold'}}>تحديد: {selectedChapNums.length}</Text>
+                                 <TouchableOpacity onPress={handleSelectAll}>
+                                     <Text style={{color: '#4a7cc7'}}>تحديد الكل</Text>
+                                 </TouchableOpacity>
+                             </View>
+                             
+                             <View style={styles.selectionTools}>
+                                 <View style={styles.rangeInputContainer}>
+                                     <TextInput 
+                                         style={styles.rangeInput}
+                                         placeholder="171-400"
+                                         placeholderTextColor="#666"
+                                         value={batchRangeInput}
+                                         onChangeText={setBatchRangeInput}
+                                     />
+                                     <TouchableOpacity style={styles.applyRangeBtn} onPress={handleRangeSelection}>
+                                         <Ionicons name="checkmark" size={16} color="#fff" />
+                                     </TouchableOpacity>
+                                 </View>
+                                 
+                                 <TouchableOpacity 
+                                     style={[styles.batchDeleteBtn, selectedChapNums.length === 0 && {opacity: 0.5}]}
+                                     disabled={selectedChapNums.length === 0}
+                                     onPress={handleBatchDelete}
+                                 >
+                                     <Ionicons name="trash-outline" size={20} color="#fff" />
+                                     <Text style={{color: '#fff', fontSize: 12, fontWeight: 'bold', marginLeft: 5}}>حذف</Text>
+                                 </TouchableOpacity>
+                             </View>
                          </View>
-                     </TouchableOpacity>
+                     ) : (
+                         <TouchableOpacity style={styles.addChapterCard} onPress={prepareAddChapter}>
+                             <View style={styles.addChapterContent}>
+                                 <Ionicons name="add-circle-outline" size={32} color="#fff" />
+                                 <Text style={{color: '#fff', fontWeight: 'bold', marginTop: 5}}>إضافة فصل جديد</Text>
+                             </View>
+                         </TouchableOpacity>
+                     )}
 
                      {chaptersLoading ? <ActivityIndicator size="large" color="#fff" style={{marginTop: 50}} /> : (
-                         <View style={{gap: 10}}>
-                             {novelChapters.length === 0 ? <Text style={{color: '#666', textAlign: 'center', marginTop: 20}}>لا توجد فصول لهذه الرواية.</Text> : (
-                                 novelChapters.map((chap) => (
-                                     <View key={chap.number} style={styles.chapterCard}>
-                                         <View style={styles.chapInfo}>
-                                             <Text style={styles.chapNum}>#{chap.number}</Text>
-                                             <Text style={styles.chapTitle}>{chap.title}</Text>
+                         <FlatList 
+                             data={novelChapters}
+                             keyExtractor={item => item.number.toString()}
+                             contentContainerStyle={{paddingBottom: 50}}
+                             nestedScrollEnabled={true}
+                             renderItem={({item: chap}) => (
+                                 <TouchableOpacity 
+                                     style={[styles.chapterCard, isSelectionMode && selectedChapNums.includes(chap.number) && styles.chapterCardSelected]}
+                                     onLongPress={() => handleLongPressChapter(chap.number)}
+                                     onPress={() => {
+                                         if (isSelectionMode) handleToggleSelection(chap.number);
+                                         else prepareEditChapter(chap);
+                                     }}
+                                     activeOpacity={0.8}
+                                 >
+                                     <View style={styles.chapInfo}>
+                                         <Text style={styles.chapNum}>#{chap.number}</Text>
+                                         <Text style={styles.chapTitle}>{chap.title}</Text>
+                                     </View>
+                                     
+                                     {isSelectionMode ? (
+                                         <View style={styles.checkCircle}>
+                                             {selectedChapNums.includes(chap.number) && <Ionicons name="checkmark" size={16} color="#4a7cc7" />}
                                          </View>
+                                     ) : (
                                          <View style={styles.chapActions}>
                                              <TouchableOpacity style={styles.iconAction} onPress={() => prepareEditChapter(chap)}>
                                                  <Ionicons name="create-outline" size={20} color="#fff" />
@@ -547,10 +690,11 @@ export default function AdminDashboardScreen({ route, navigation }) {
                                                  <Ionicons name="trash-outline" size={20} color="#ff4444" />
                                              </TouchableOpacity>
                                          </View>
-                                     </View>
-                                 ))
+                                     )}
+                                 </TouchableOpacity>
                              )}
-                         </View>
+                             ListEmptyComponent={<Text style={{color: '#666', textAlign: 'center', marginTop: 20}}>لا توجد فصول لهذه الرواية.</Text>}
+                         />
                      )}
                  </View>
             )}
@@ -737,11 +881,21 @@ const styles = StyleSheet.create({
   addChapterContent: { padding: 30, alignItems: 'center', justifyContent: 'center' },
   
   chapterCard: { flexDirection: 'row-reverse', backgroundColor: 'rgba(30,30,30,0.6)', padding: 15, borderRadius: 12, marginBottom: 10, alignItems: 'center', borderWidth: 1, borderColor: 'rgba(255,255,255,0.1)' },
+  chapterCardSelected: { backgroundColor: 'rgba(74, 124, 199, 0.2)', borderColor: '#4a7cc7' },
   chapInfo: { flex: 1, alignItems: 'flex-end' },
   chapNum: { color: '#ccc', fontSize: 12, fontWeight: 'bold' },
   chapTitle: { color: '#fff', fontSize: 14, fontWeight: 'bold' },
   chapActions: { flexDirection: 'row', gap: 10 },
   iconAction: { padding: 8, backgroundColor: 'rgba(255,255,255,0.05)', borderRadius: 8 },
+  checkCircle: { width: 24, height: 24, borderRadius: 12, borderWidth: 1, borderColor: '#4a7cc7', justifyContent: 'center', alignItems: 'center', backgroundColor: '#1a1a1a' },
+
+  // Selection Bar
+  selectionBar: { backgroundColor: '#1a1a1a', borderRadius: 16, padding: 15, marginBottom: 15, borderBottomWidth: 2, borderBottomColor: '#4a7cc7' },
+  selectionTools: { flexDirection: 'row', gap: 10 },
+  rangeInputContainer: { flex: 1, flexDirection: 'row', backgroundColor: '#222', borderRadius: 8, padding: 2 },
+  rangeInput: { flex: 1, color: '#fff', paddingHorizontal: 10, fontSize: 12, textAlign: 'center' },
+  applyRangeBtn: { backgroundColor: '#4a7cc7', width: 30, justifyContent: 'center', alignItems: 'center', borderRadius: 6 },
+  batchDeleteBtn: { flexDirection: 'row', alignItems: 'center', backgroundColor: '#b91c1c', paddingHorizontal: 15, borderRadius: 8 },
 
   // Toggle
   modeToggle: { flexDirection: 'row', backgroundColor: 'rgba(0,0,0,0.5)', padding: 4, borderRadius: 12, marginBottom: 20 },
