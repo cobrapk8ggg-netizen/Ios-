@@ -1,3 +1,4 @@
+
 import React, { useState, useContext, useEffect, useRef } from 'react';
 import {
   View,
@@ -9,7 +10,9 @@ import {
   ActivityIndicator,
   FlatList,
   Dimensions,
-  Platform
+  Platform,
+  StatusBar,
+  ImageBackground
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { SafeAreaView } from 'react-native-safe-area-context';
@@ -24,6 +27,13 @@ const { height } = Dimensions.get('window');
 // ⚠️ استبدل هذا الرابط برابط مشروعك على Railway بعد نشره
 const SCRAPER_URL = 'https://test-production-20af.up.railway.app/scrape'; 
 const API_SECRET = 'Zeusndndjddnejdjdjdejekk29393838msmskxcm9239484jdndjdnddjj99292938338zeuslojdnejxxmejj82283849'; 
+
+// Glass Container
+const GlassContainer = ({ children, style }) => (
+    <View style={[styles.glassContainer, style]}>
+        {children}
+    </View>
+);
 
 export default function AutoImportScreen({ navigation }) {
   const { userInfo } = useContext(AuthContext);
@@ -164,104 +174,131 @@ export default function AutoImportScreen({ navigation }) {
   };
 
   return (
-    <SafeAreaView style={styles.container} edges={['top']}>
-      <View style={styles.header}>
-        <TouchableOpacity onPress={() => navigation.goBack()} style={styles.backButton}>
-            <Ionicons name="arrow-forward" size={24} color="#fff" />
-        </TouchableOpacity>
-        <Text style={styles.headerTitle}>الاستيراد الآلي (Live Console)</Text>
-        <View style={{width: 40}} />
-      </View>
+    <View style={styles.container}>
+      <StatusBar barStyle="light-content" />
+      <ImageBackground 
+        source={require('../../assets/adaptive-icon.png')} 
+        style={styles.bgImage}
+        blurRadius={20}
+      >
+          <LinearGradient colors={['rgba(0,0,0,0.6)', '#000000']} style={StyleSheet.absoluteFill} />
+      </ImageBackground>
 
-      <View style={styles.content}>
-        <View style={styles.inputContainer}>
-            <Text style={styles.label}>روابط المواقع المدعومة (نادي الروايات، Ar-Novel، مركز الروايات، Novel Fire)</Text>
-            <View style={styles.inputRow}>
-                <TextInput 
-                    style={styles.input} 
-                    placeholder="ضع رابط الرواية هنا..."
-                    placeholderTextColor="#666"
-                    value={url}
-                    onChangeText={setUrl}
-                    autoCapitalize="none"
+      <SafeAreaView style={{flex: 1}} edges={['top']}>
+        <View style={styles.header}>
+            <TouchableOpacity onPress={() => navigation.goBack()} style={styles.iconBtn}>
+                <Ionicons name="arrow-forward" size={24} color="#fff" />
+            </TouchableOpacity>
+            <Text style={styles.headerTitle}>الاستيراد الآلي (Live Console)</Text>
+            <View style={{width: 40}} />
+        </View>
+
+        <View style={styles.content}>
+            
+            <GlassContainer style={styles.inputBox}>
+                <Text style={styles.label}>روابط المواقع المدعومة</Text>
+                <Text style={styles.subLabel}>(نادي الروايات، Ar-Novel، مركز الروايات، Novel Fire)</Text>
+                
+                <View style={styles.inputRow}>
+                    <TextInput 
+                        style={styles.input} 
+                        placeholder="ضع رابط الرواية هنا..."
+                        placeholderTextColor="#666"
+                        value={url}
+                        onChangeText={setUrl}
+                        autoCapitalize="none"
+                    />
+                    <TouchableOpacity 
+                        style={[styles.goBtn, (loading || !url) && styles.disabledBtn]} 
+                        onPress={handleImport}
+                        disabled={loading || !url}
+                    >
+                        {loading ? <ActivityIndicator color="#fff" size="small" /> : <Ionicons name="rocket" size={24} color="#fff" />}
+                    </TouchableOpacity>
+                </View>
+            </GlassContainer>
+
+            <GlassContainer style={styles.consoleContainer}>
+                <View style={styles.consoleHeader}>
+                    <Text style={styles.consoleTitle}>شاشة النظام (Terminal)</Text>
+                    {polling && <ActivityIndicator size="small" color="#4ade80" />}
+                </View>
+                
+                <FlatList
+                    ref={flatListRef}
+                    data={serverLogs}
+                    keyExtractor={item => item._id || Math.random().toString()}
+                    renderItem={renderLogItem}
+                    contentContainerStyle={styles.logsContent}
+                    style={styles.logsList}
+                    inverted={false} 
+                    ListEmptyComponent={
+                        <View style={{alignItems: 'center', marginTop: 50, opacity: 0.5}}>
+                            <Ionicons name="terminal-outline" size={40} color="#666" />
+                            <Text style={styles.emptyText}>جاهز للاستيراد...</Text>
+                            <Text style={[styles.emptyText, {fontSize: 10, marginTop: 5}]}>
+                                أدخل الرابط واضغط زر الانطلاق
+                            </Text>
+                        </View>
+                    }
                 />
-                <TouchableOpacity 
-                    style={[styles.goBtn, (loading || !url) && styles.disabledBtn]} 
-                    onPress={handleImport}
-                    disabled={loading || !url}
-                >
-                    {loading ? <ActivityIndicator color="#fff" size="small" /> : <Ionicons name="rocket" size={20} color="#fff" />}
-                </TouchableOpacity>
-            </View>
+            </GlassContainer>
         </View>
-
-        <View style={styles.consoleContainer}>
-            <View style={styles.consoleHeader}>
-                <Text style={styles.consoleTitle}>شاشة النظام (Terminal)</Text>
-                {polling && <ActivityIndicator size="small" color="#4ade80" />}
-            </View>
-             
-            <FlatList
-                ref={flatListRef}
-                data={serverLogs}
-                keyExtractor={item => item._id || Math.random().toString()}
-                renderItem={renderLogItem}
-                contentContainerStyle={styles.logsContent}
-                style={styles.logsList}
-                inverted={false} 
-                ListEmptyComponent={
-                    <View style={{alignItems: 'center', marginTop: 50}}>
-                        <Text style={styles.emptyText}>جاهز للاستيراد...</Text>
-                        <Text style={[styles.emptyText, {fontSize: 10, marginTop: 5}]}>
-                            أدخل الرابط واضغط زر الانطلاق
-                        </Text>
-                    </View>
-                }
-            />
-        </View>
-      </View>
-    </SafeAreaView>
+      </SafeAreaView>
+    </View>
   );
 }
 
 const styles = StyleSheet.create({
   container: { flex: 1, backgroundColor: '#000' },
-  header: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', padding: 15, borderBottomWidth: 1, borderColor: '#222' },
-  headerTitle: { fontSize: 16, fontWeight: 'bold', color: '#fff' },
-  backButton: { padding: 5, borderRadius: 20, backgroundColor: '#1a1a1a' },
+  bgImage: { ...StyleSheet.absoluteFillObject },
+  
+  header: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', padding: 20 },
+  headerTitle: { fontSize: 18, fontWeight: 'bold', color: '#fff' },
+  iconBtn: { padding: 10, backgroundColor: 'rgba(255,255,255,0.1)', borderRadius: 12 },
    
   content: { flex: 1, padding: 20 },
-   
-  inputContainer: { marginBottom: 20 },
-  label: { color: '#ccc', marginBottom: 10, textAlign: 'right', fontWeight: 'bold' },
+  
+  // Glass Components
+  glassContainer: {
+      backgroundColor: 'rgba(20, 20, 20, 0.75)',
+      borderRadius: 16,
+      overflow: 'hidden',
+      borderWidth: 1,
+      borderColor: 'rgba(255,255,255,0.1)',
+      marginBottom: 20
+  },
+  
+  inputBox: { padding: 20 },
+  label: { color: '#fff', textAlign: 'right', fontWeight: 'bold', fontSize: 16, marginBottom: 5 },
+  subLabel: { color: '#888', textAlign: 'right', fontSize: 12, marginBottom: 15 },
+  
   inputRow: { flexDirection: 'row', gap: 10 },
-  input: { flex: 1, backgroundColor: '#161616', borderRadius: 12, padding: 15, color: '#fff', borderWidth: 1, borderColor: '#333', textAlign: 'left' },
-  goBtn: { width: 50, backgroundColor: '#8b5cf6', borderRadius: 12, justifyContent: 'center', alignItems: 'center' },
-  disabledBtn: { opacity: 0.5, backgroundColor: '#333' },
+  input: { flex: 1, backgroundColor: 'rgba(0,0,0,0.5)', borderRadius: 12, padding: 15, color: '#fff', borderWidth: 1, borderColor: 'rgba(255,255,255,0.1)', textAlign: 'left' },
+  
+  // Glassy Action Button
+  goBtn: { width: 60, backgroundColor: 'rgba(139, 92, 246, 0.2)', borderRadius: 12, justifyContent: 'center', alignItems: 'center', borderWidth: 1, borderColor: '#8b5cf6' },
+  disabledBtn: { opacity: 0.5, backgroundColor: 'rgba(255,255,255,0.05)', borderColor: '#333' },
 
   consoleContainer: {
       flex: 1,
-      backgroundColor: '#0f0f0f',
-      borderRadius: 12,
-      borderWidth: 1,
-      borderColor: '#333',
-      overflow: 'hidden'
+      backgroundColor: 'rgba(0,0,0,0.8)', // Darker for terminal look
+      marginBottom: 0
   },
   consoleHeader: {
       flexDirection: 'row-reverse',
       justifyContent: 'space-between',
       alignItems: 'center',
-      padding: 10,
-      backgroundColor: '#1a1a1a',
+      padding: 15,
       borderBottomWidth: 1,
-      borderBottomColor: '#333'
+      borderBottomColor: 'rgba(255,255,255,0.1)'
   },
-  consoleTitle: { color: '#888', fontSize: 12, fontFamily: 'monospace' },
+  consoleTitle: { color: '#888', fontSize: 12, fontFamily: Platform.OS === 'ios' ? 'Menlo' : 'monospace' },
    
   logsList: { flex: 1 },
   logsContent: { padding: 15 },
-  logItem: { marginBottom: 12, borderBottomWidth: 1, borderBottomColor: '#222', paddingBottom: 8 },
+  logItem: { marginBottom: 12, borderBottomWidth: 1, borderBottomColor: 'rgba(255,255,255,0.05)', paddingBottom: 8 },
   logHeader: { flexDirection: 'row-reverse', justifyContent: 'space-between', marginBottom: 4 },
-  logText: { fontSize: 13, fontFamily: 'monospace', textAlign: 'right', lineHeight: 20 },
-  emptyText: { color: '#444', textAlign: 'center', fontFamily: 'monospace' }
+  logText: { fontSize: 13, fontFamily: Platform.OS === 'ios' ? 'Menlo' : 'monospace', textAlign: 'right', lineHeight: 20 },
+  emptyText: { color: '#444', textAlign: 'center', fontFamily: Platform.OS === 'ios' ? 'Menlo' : 'monospace' }
 });
