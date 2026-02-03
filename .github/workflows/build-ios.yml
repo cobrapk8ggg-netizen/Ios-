@@ -1,8 +1,6 @@
 name: Build Unsigned iOS IPA (Expo SDK 54)
 
 on:
-  push:
-    branches: [ main ]
   workflow_dispatch:
 
 jobs:
