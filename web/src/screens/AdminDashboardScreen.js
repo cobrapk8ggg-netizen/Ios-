@@ -1,5 +1,5 @@
 
-import React, { useState, useEffect, useContext } from 'react';
+import React, { useState, useEffect, useContext, useMemo } from 'react';
 import {
   View,
   Text,
@@ -49,6 +49,7 @@ export default function AdminDashboardScreen({ route, navigation }) {
 
   // Novel State
   const [title, setTitle] = useState(editNovelData?.title || '');
+  const [titleEn, setTitleEn] = useState(editNovelData?.titleEn || ''); 
   const [cover, setCover] = useState(editNovelData?.cover || '');
   const [description, setDescription] = useState(editNovelData?.description || '');
   const initialTags = editNovelData?.tags || [];
@@ -59,12 +60,16 @@ export default function AdminDashboardScreen({ route, navigation }) {
   // Dynamic Categories
   const [availableCategories, setAvailableCategories] = useState([]);
 
+  // Chapters Data & UI State
   const [novelChapters, setNovelChapters] = useState([]);
   const [chaptersLoading, setChaptersLoading] = useState(false);
+  const [chapterSearch, setChapterSearch] = useState('');
+  const [sortAsc, setSortAsc] = useState(true); // Default Ascending (1, 2, 3...)
+  const [displayedLimit, setDisplayedLimit] = useState(150); // Lazy load limit
 
   // --- BATCH SELECTION STATE ---
   const [isSelectionMode, setIsSelectionMode] = useState(false);
-  const [selectedChapNums, setSelectedChapNums] = useState([]); // Array of Numbers
+  const [selectedChapNums, setSelectedChapNums] = useState([]); 
   const [batchRangeInput, setBatchRangeInput] = useState('');
 
   // Single Chapter State
@@ -110,11 +115,37 @@ export default function AdminDashboardScreen({ route, navigation }) {
       try {
           const res = await api.get(`/api/novels/${id}`);
           if (res.data && res.data.chapters) {
-              const sorted = res.data.chapters.sort((a, b) => b.number - a.number);
-              setNovelChapters(sorted);
+              setNovelChapters(res.data.chapters);
           }
       } catch (e) { console.log("Failed to fetch novel chapters", e); } 
       finally { setChaptersLoading(false); }
+  };
+
+  // 🔥 Filtering & Sorting Logic
+  const processedChapters = useMemo(() => {
+      let result = [...novelChapters];
+      // 1. Search
+      if (chapterSearch.trim()) {
+          const q = chapterSearch.toLowerCase();
+          result = result.filter(c => 
+              (c.title && c.title.toLowerCase().includes(q)) || 
+              c.number.toString().includes(q)
+          );
+      }
+      // 2. Sort
+      result.sort((a, b) => sortAsc ? a.number - b.number : b.number - a.number);
+      return result;
+  }, [novelChapters, chapterSearch, sortAsc]);
+
+  // 🔥 Lazy Loading Slice
+  const visibleChapters = useMemo(() => {
+      return processedChapters.slice(0, displayedLimit);
+  }, [processedChapters, displayedLimit]);
+
+  const loadMoreChapters = () => {
+      if (visibleChapters.length < processedChapters.length) {
+          setDisplayedLimit(prev => prev + 150);
+      }
   };
 
   const fetchChapterContent = async () => {
@@ -140,6 +171,7 @@ export default function AdminDashboardScreen({ route, navigation }) {
     } catch(e) { console.log(e); }
   };
 
+  // ... (Other standard functions: pickImage, uploadImage, pickZipFile, etc. - kept same)
   const pickImage = async () => {
     const { status } = await ImagePicker.requestMediaLibraryPermissionsAsync();
     if (status !== 'granted') { showToast('نحتاج إذن الوصول للصور', 'error'); return; }
@@ -262,7 +294,7 @@ export default function AdminDashboardScreen({ route, navigation }) {
       if (!title || !cover) { showToast("املأ الحقول الأساسية", 'error'); return; }
       setLoading(true);
       try {
-          const payload = { title, cover, description, category: selectedTags[0] || 'أخرى', tags: selectedTags, status };
+          const payload = { title, titleEn, cover, description, category: selectedTags[0] || 'أخرى', tags: selectedTags, status };
           if (editNovelData) {
               await api.put(`/api/admin/novels/${editNovelData._id}`, payload);
               showToast("تم تحديث الرواية بنجاح", 'success');
@@ -320,7 +352,6 @@ export default function AdminDashboardScreen({ route, navigation }) {
       setAlertVisible(true);
   };
 
-  // --- BATCH SELECTION LOGIC ---
   const handleLongPressChapter = (chapNum) => {
       setIsSelectionMode(true);
       setSelectedChapNums([chapNum]);
@@ -357,7 +388,7 @@ export default function AdminDashboardScreen({ route, navigation }) {
           return;
       }
 
-      if (start > end) [start, end] = [end, start]; // swap if inverted
+      if (start > end) [start, end] = [end, start]; 
 
       const newSelection = [];
       const availableNums = novelChapters.map(c => c.number);
@@ -433,7 +464,6 @@ export default function AdminDashboardScreen({ route, navigation }) {
     <View style={styles.container}>
       <StatusBar barStyle="light-content" backgroundColor="transparent" translucent />
       
-      {/* Background Cover - THE GLASSY BASE */}
       <ImageBackground 
         source={cover ? {uri: cover} : require('../../assets/adaptive-icon.png')} 
         style={styles.bgImage}
@@ -474,10 +504,10 @@ export default function AdminDashboardScreen({ route, navigation }) {
               </View>
           )}
 
-          <ScrollView contentContainerStyle={styles.content} scrollEnabled={activeTab !== 'chapters_list'}>
-            
-            {/* NOVEL DETAILS FORM */}
-            {activeTab === 'novel' && (
+          {/* 🔥 MAIN CONTENT STRUCTURE FIXED FOR SCROLLING 🔥 */}
+          {activeTab === 'novel' ? (
+              <ScrollView contentContainerStyle={styles.content}>
+                {/* NOVEL DETAILS FORM */}
                 <View style={{gap: 20}}>
                     {/* Cover Section */}
                     <TouchableOpacity style={styles.coverUpload} onPress={pickImage}>
@@ -494,12 +524,21 @@ export default function AdminDashboardScreen({ route, navigation }) {
                     </TouchableOpacity>
                     
                     <GlassContainer>
-                        <Text style={styles.label}>عنوان الرواية</Text>
+                        <Text style={styles.label}>عنوان الرواية (عربي)</Text>
                         <TextInput 
                             style={styles.glassInput} 
                             value={title} 
                             onChangeText={setTitle} 
                             placeholder="اكتب العنوان هنا..." 
+                            placeholderTextColor="#666" 
+                        />
+
+                        <Text style={styles.label}>عنوان الرواية (إنجليزي - اختياري)</Text>
+                        <TextInput 
+                            style={[styles.glassInput, {textAlign: 'left', direction: 'ltr'}]} 
+                            value={titleEn} 
+                            onChangeText={setTitleEn} 
+                            placeholder="English Title..." 
                             placeholderTextColor="#666" 
                         />
                         
@@ -584,7 +623,6 @@ export default function AdminDashboardScreen({ route, navigation }) {
                         </View>
                     </GlassContainer>
 
-                    {/* 🔥 DESCRIPTION BOX: AUTO-GROW & HUGE 🔥 */}
                     <GlassContainer>
                         <Text style={styles.label}>الوصف</Text>
                         <TextInput 
@@ -592,7 +630,7 @@ export default function AdminDashboardScreen({ route, navigation }) {
                             value={description} 
                             onChangeText={setDescription} 
                             multiline={true} 
-                            scrollEnabled={false} // KEY: Allows the box to expand with text
+                            scrollEnabled={false} 
                             placeholder="اكتب وصفاً مشوقاً..." 
                             placeholderTextColor="#666" 
                         />
@@ -606,101 +644,130 @@ export default function AdminDashboardScreen({ route, navigation }) {
                         )}
                     </TouchableOpacity>
                 </View>
-            )}
+              </ScrollView>
+          ) : activeTab === 'chapters_list' ? (
+              /* CHAPTERS LIST VIEW - USE A VIEW CONTAINER, NOT SCROLLVIEW */
+              <View style={styles.chaptersContainer}>
+                 {/* 🔥 Search & Sort Controls 🔥 */}
+                 <View style={styles.listControls}>
+                     <View style={styles.searchBar}>
+                         <Ionicons name="search" size={18} color="#666" />
+                         <TextInput 
+                             style={styles.searchInput} 
+                             placeholder="بحث برقم الفصل..." 
+                             placeholderTextColor="#666"
+                             value={chapterSearch}
+                             onChangeText={setChapterSearch}
+                             keyboardType="numeric"
+                         />
+                     </View>
+                     <TouchableOpacity style={styles.sortToggleBtn} onPress={() => setSortAsc(!sortAsc)}>
+                         <Ionicons name={sortAsc ? "arrow-up" : "arrow-down"} size={20} color="#4a7cc7" />
+                         <Text style={styles.sortBtnText}>{sortAsc ? '1 ➔ 9' : '9 ➔ 1'}</Text>
+                     </TouchableOpacity>
+                 </View>
 
-            {/* CHAPTERS LIST (With Batch Selection) */}
-            {activeTab === 'chapters_list' && (
-                 <View style={{flex: 1, minHeight: Dimensions.get('window').height * 0.7}}>
-                     {isSelectionMode ? (
-                         <View style={styles.selectionBar}>
-                             <View style={{flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginBottom: 10}}>
-                                 <TouchableOpacity onPress={() => { setIsSelectionMode(false); setSelectedChapNums([]); }}>
-                                     <Text style={{color: '#ff4444', fontWeight: 'bold'}}>إلغاء</Text>
-                                 </TouchableOpacity>
-                                 <Text style={{color: '#fff', fontWeight: 'bold'}}>تحديد: {selectedChapNums.length}</Text>
-                                 <TouchableOpacity onPress={handleSelectAll}>
-                                     <Text style={{color: '#4a7cc7'}}>تحديد الكل</Text>
+                 {/* Batch Selection Bar */}
+                 {isSelectionMode ? (
+                     <View style={styles.selectionBar}>
+                         <View style={{flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginBottom: 10}}>
+                             <TouchableOpacity onPress={() => { setIsSelectionMode(false); setSelectedChapNums([]); }}>
+                                 <Text style={{color: '#ff4444', fontWeight: 'bold'}}>إلغاء</Text>
+                             </TouchableOpacity>
+                             <Text style={{color: '#fff', fontWeight: 'bold'}}>تحديد: {selectedChapNums.length}</Text>
+                             <TouchableOpacity onPress={handleSelectAll}>
+                                 <Text style={{color: '#4a7cc7'}}>تحديد الكل</Text>
+                             </TouchableOpacity>
+                         </View>
+                         
+                         <View style={styles.selectionTools}>
+                             <View style={styles.rangeInputContainer}>
+                                 <TextInput 
+                                     style={styles.rangeInput}
+                                     placeholder="171-400"
+                                     placeholderTextColor="#666"
+                                     value={batchRangeInput}
+                                     onChangeText={setBatchRangeInput}
+                                 />
+                                 <TouchableOpacity style={styles.applyRangeBtn} onPress={handleRangeSelection}>
+                                     <Ionicons name="checkmark" size={16} color="#fff" />
                                  </TouchableOpacity>
                              </View>
                              
-                             <View style={styles.selectionTools}>
-                                 <View style={styles.rangeInputContainer}>
-                                     <TextInput 
-                                         style={styles.rangeInput}
-                                         placeholder="171-400"
-                                         placeholderTextColor="#666"
-                                         value={batchRangeInput}
-                                         onChangeText={setBatchRangeInput}
-                                     />
-                                     <TouchableOpacity style={styles.applyRangeBtn} onPress={handleRangeSelection}>
-                                         <Ionicons name="checkmark" size={16} color="#fff" />
-                                     </TouchableOpacity>
+                             <TouchableOpacity 
+                                 style={[styles.batchDeleteBtn, selectedChapNums.length === 0 && {opacity: 0.5}]}
+                                 disabled={selectedChapNums.length === 0}
+                                 onPress={handleBatchDelete}
+                             >
+                                 <Ionicons name="trash-outline" size={20} color="#fff" />
+                                 <Text style={{color: '#fff', fontSize: 12, fontWeight: 'bold', marginLeft: 5}}>حذف</Text>
+                             </TouchableOpacity>
+                         </View>
+                     </View>
+                 ) : (
+                     <TouchableOpacity style={styles.addChapterCard} onPress={prepareAddChapter}>
+                         <View style={styles.addChapterContent}>
+                             <Ionicons name="add-circle-outline" size={32} color="#fff" />
+                             <Text style={{color: '#fff', fontWeight: 'bold', marginTop: 5}}>إضافة فصل جديد</Text>
+                         </View>
+                     </TouchableOpacity>
+                 )}
+
+                 {chaptersLoading ? <ActivityIndicator size="large" color="#fff" style={{marginTop: 50}} /> : (
+                     <FlatList 
+                         data={visibleChapters}
+                         keyExtractor={item => item.number.toString()}
+                         contentContainerStyle={{paddingBottom: 50, paddingHorizontal: 20}}
+                         // Performance Props
+                         initialNumToRender={20}
+                         maxToRenderPerBatch={20}
+                         windowSize={10}
+                         removeClippedSubviews={true}
+                         renderItem={({item: chap}) => (
+                             <TouchableOpacity 
+                                 style={[styles.chapterCard, isSelectionMode && selectedChapNums.includes(chap.number) && styles.chapterCardSelected]}
+                                 onLongPress={() => handleLongPressChapter(chap.number)}
+                                 onPress={() => {
+                                     if (isSelectionMode) handleToggleSelection(chap.number);
+                                     else prepareEditChapter(chap);
+                                 }}
+                                 activeOpacity={0.8}
+                             >
+                                 <View style={styles.chapInfo}>
+                                     <Text style={styles.chapNum}>#{chap.number}</Text>
+                                     <Text style={styles.chapTitle}>{chap.title}</Text>
                                  </View>
                                  
-                                 <TouchableOpacity 
-                                     style={[styles.batchDeleteBtn, selectedChapNums.length === 0 && {opacity: 0.5}]}
-                                     disabled={selectedChapNums.length === 0}
-                                     onPress={handleBatchDelete}
-                                 >
-                                     <Ionicons name="trash-outline" size={20} color="#fff" />
-                                     <Text style={{color: '#fff', fontSize: 12, fontWeight: 'bold', marginLeft: 5}}>حذف</Text>
-                                 </TouchableOpacity>
-                             </View>
-                         </View>
-                     ) : (
-                         <TouchableOpacity style={styles.addChapterCard} onPress={prepareAddChapter}>
-                             <View style={styles.addChapterContent}>
-                                 <Ionicons name="add-circle-outline" size={32} color="#fff" />
-                                 <Text style={{color: '#fff', fontWeight: 'bold', marginTop: 5}}>إضافة فصل جديد</Text>
-                             </View>
-                         </TouchableOpacity>
-                     )}
-
-                     {chaptersLoading ? <ActivityIndicator size="large" color="#fff" style={{marginTop: 50}} /> : (
-                         <FlatList 
-                             data={novelChapters}
-                             keyExtractor={item => item.number.toString()}
-                             contentContainerStyle={{paddingBottom: 50}}
-                             nestedScrollEnabled={true}
-                             renderItem={({item: chap}) => (
-                                 <TouchableOpacity 
-                                     style={[styles.chapterCard, isSelectionMode && selectedChapNums.includes(chap.number) && styles.chapterCardSelected]}
-                                     onLongPress={() => handleLongPressChapter(chap.number)}
-                                     onPress={() => {
-                                         if (isSelectionMode) handleToggleSelection(chap.number);
-                                         else prepareEditChapter(chap);
-                                     }}
-                                     activeOpacity={0.8}
-                                 >
-                                     <View style={styles.chapInfo}>
-                                         <Text style={styles.chapNum}>#{chap.number}</Text>
-                                         <Text style={styles.chapTitle}>{chap.title}</Text>
+                                 {isSelectionMode ? (
+                                     <View style={styles.checkCircle}>
+                                         {selectedChapNums.includes(chap.number) && <Ionicons name="checkmark" size={16} color="#4a7cc7" />}
                                      </View>
-                                     
-                                     {isSelectionMode ? (
-                                         <View style={styles.checkCircle}>
-                                             {selectedChapNums.includes(chap.number) && <Ionicons name="checkmark" size={16} color="#4a7cc7" />}
-                                         </View>
-                                     ) : (
-                                         <View style={styles.chapActions}>
-                                             <TouchableOpacity style={styles.iconAction} onPress={() => prepareEditChapter(chap)}>
-                                                 <Ionicons name="create-outline" size={20} color="#fff" />
-                                             </TouchableOpacity>
-                                             <TouchableOpacity style={styles.iconAction} onPress={() => handleDeleteChapter(chap.number)}>
-                                                 <Ionicons name="trash-outline" size={20} color="#ff4444" />
-                                             </TouchableOpacity>
-                                         </View>
-                                     )}
+                                 ) : (
+                                     <View style={styles.chapActions}>
+                                         <TouchableOpacity style={styles.iconAction} onPress={() => prepareEditChapter(chap)}>
+                                             <Ionicons name="create-outline" size={20} color="#fff" />
+                                         </TouchableOpacity>
+                                         <TouchableOpacity style={styles.iconAction} onPress={() => handleDeleteChapter(chap.number)}>
+                                             <Ionicons name="trash-outline" size={20} color="#ff4444" />
+                                         </TouchableOpacity>
+                                     </View>
+                                 )}
+                             </TouchableOpacity>
+                         )}
+                         ListEmptyComponent={<Text style={{color: '#666', textAlign: 'center', marginTop: 20}}>لا توجد فصول تطابق بحثك.</Text>}
+                         ListFooterComponent={
+                             visibleChapters.length < processedChapters.length ? (
+                                 <TouchableOpacity style={styles.loadMoreBtn} onPress={loadMoreChapters}>
+                                     <Text style={styles.loadMoreText}>عرض المزيد من الفصول</Text>
                                  </TouchableOpacity>
-                             )}
-                             ListEmptyComponent={<Text style={{color: '#666', textAlign: 'center', marginTop: 20}}>لا توجد فصول لهذه الرواية.</Text>}
-                         />
-                     )}
-                 </View>
-            )}
-
-            {/* CHAPTER FORM */}
-            {activeTab === 'chapter_form' && (
+                             ) : null
+                         }
+                     />
+                 )}
+              </View>
+          ) : (
+              /* CHAPTER FORM VIEW */
+              <ScrollView contentContainerStyle={styles.content}>
                 <View style={{gap: 20}}>
                     {editNovelData && (
                         <TouchableOpacity style={styles.backLink} onPress={() => setActiveTab('chapters_list')}>
@@ -788,8 +855,8 @@ export default function AdminDashboardScreen({ route, navigation }) {
                         </GlassContainer>
                     )}
                 </View>
-            )}
-          </ScrollView>
+              </ScrollView>
+          )}
 
           <Modal visible={showNovelPicker} transparent animationType="slide">
               <View style={styles.modalBg}>
@@ -828,7 +895,15 @@ const styles = StyleSheet.create({
   activeTabText: { color: '#fff' },
 
   content: { padding: 20, paddingBottom: 50 },
-  
+  chaptersContainer: { flex: 1 },
+
+  // List Controls (Search & Sort)
+  listControls: { flexDirection: 'row-reverse', paddingHorizontal: 20, gap: 10, marginBottom: 15 },
+  searchBar: { flex: 1, flexDirection: 'row-reverse', alignItems: 'center', backgroundColor: '#1a1a1a', borderRadius: 12, paddingHorizontal: 12, gap: 8, borderWidth: 1, borderColor: '#333' },
+  searchInput: { flex: 1, color: '#fff', textAlign: 'right', fontSize: 14, height: 45 },
+  sortToggleBtn: { flexDirection: 'row-reverse', alignItems: 'center', backgroundColor: 'rgba(74, 124, 199, 0.1)', paddingHorizontal: 12, borderRadius: 12, borderWidth: 1, borderColor: 'rgba(74, 124, 199, 0.3)', gap: 5 },
+  sortBtnText: { color: '#4a7cc7', fontWeight: 'bold', fontSize: 12 },
+
   // Strict Glass Container
   glassContainer: { backgroundColor: 'rgba(20, 20, 20, 0.75)', borderRadius: 16, padding: 20, borderWidth: 1, borderColor: 'rgba(255,255,255,0.1)', marginBottom: 20 },
   
@@ -877,7 +952,7 @@ const styles = StyleSheet.create({
   btnText: { color: '#fff', fontWeight: 'bold', fontSize: 16 },
 
   // Chapters Style
-  addChapterCard: { marginBottom: 20, borderRadius: 16, overflow: 'hidden', borderWidth: 1, borderColor: 'rgba(255,255,255,0.2)', borderStyle: 'dashed', backgroundColor: 'rgba(255,255,255,0.05)' },
+  addChapterCard: { marginBottom: 20, marginHorizontal: 20, borderRadius: 16, overflow: 'hidden', borderWidth: 1, borderColor: 'rgba(255,255,255,0.2)', borderStyle: 'dashed', backgroundColor: 'rgba(255,255,255,0.05)' },
   addChapterContent: { padding: 30, alignItems: 'center', justifyContent: 'center' },
   
   chapterCard: { flexDirection: 'row-reverse', backgroundColor: 'rgba(30,30,30,0.6)', padding: 15, borderRadius: 12, marginBottom: 10, alignItems: 'center', borderWidth: 1, borderColor: 'rgba(255,255,255,0.1)' },
@@ -890,12 +965,16 @@ const styles = StyleSheet.create({
   checkCircle: { width: 24, height: 24, borderRadius: 12, borderWidth: 1, borderColor: '#4a7cc7', justifyContent: 'center', alignItems: 'center', backgroundColor: '#1a1a1a' },
 
   // Selection Bar
-  selectionBar: { backgroundColor: '#1a1a1a', borderRadius: 16, padding: 15, marginBottom: 15, borderBottomWidth: 2, borderBottomColor: '#4a7cc7' },
+  selectionBar: { backgroundColor: '#1a1a1a', borderRadius: 16, padding: 15, marginHorizontal: 20, marginBottom: 15, borderBottomWidth: 2, borderBottomColor: '#4a7cc7' },
   selectionTools: { flexDirection: 'row', gap: 10 },
   rangeInputContainer: { flex: 1, flexDirection: 'row', backgroundColor: '#222', borderRadius: 8, padding: 2 },
   rangeInput: { flex: 1, color: '#fff', paddingHorizontal: 10, fontSize: 12, textAlign: 'center' },
   applyRangeBtn: { backgroundColor: '#4a7cc7', width: 30, justifyContent: 'center', alignItems: 'center', borderRadius: 6 },
   batchDeleteBtn: { flexDirection: 'row', alignItems: 'center', backgroundColor: '#b91c1c', paddingHorizontal: 15, borderRadius: 8 },
+
+  // Lazy Load Button
+  loadMoreBtn: { padding: 15, backgroundColor: 'rgba(255,255,255,0.05)', borderRadius: 12, alignItems: 'center', marginVertical: 10, borderWidth: 1, borderColor: '#333' },
+  loadMoreText: { color: '#4a7cc7', fontWeight: 'bold' },
 
   // Toggle
   modeToggle: { flexDirection: 'row', backgroundColor: 'rgba(0,0,0,0.5)', padding: 4, borderRadius: 12, marginBottom: 20 },
