@@ -13,7 +13,9 @@ import {
   TextInput,
   ActivityIndicator,
   FlatList,
-  Alert
+  Alert,
+  StatusBar,
+  ImageBackground
 } from 'react-native';
 import { Image } from 'expo-image';
 import { Ionicons } from '@expo/vector-icons';
@@ -23,6 +25,7 @@ import { useFocusEffect } from '@react-navigation/native';
 import { AuthContext } from '../context/AuthContext';
 import { useToast } from '../context/ToastContext';
 import api from '../services/api';
+import { DrawerContext } from '../../App'; // Import Context
 
 const { width } = Dimensions.get('window');
 const HEADER_HEIGHT = 280;
@@ -42,7 +45,8 @@ const formatDate = (dateString) => {
 };
 
 export default function ProfileScreen({ navigation, route }) {
-  const { userInfo, logout, login } = useContext(AuthContext); 
+  const { openDrawer } = useContext(DrawerContext); // Access Drawer
+  const { userInfo } = useContext(AuthContext); 
   const { showToast } = useToast();
   
   // Public Profile Logic
@@ -78,13 +82,6 @@ export default function ProfileScreen({ navigation, route }) {
 
   const [loadingMore, setLoadingMore] = useState(false);
   
-  // Settings Modal State
-  const [showSettings, setShowSettings] = useState(false);
-  const [editName, setEditName] = useState('');
-  const [editBio, setEditBio] = useState('');
-  const [isHistoryPublic, setIsHistoryPublic] = useState(true);
-  const [uploading, setUploading] = useState(false);
-
   // Animations
   const scrollY = useRef(new Animated.Value(0)).current;
 
@@ -216,81 +213,6 @@ export default function ProfileScreen({ navigation, route }) {
       } finally {
           setLoadingMore(false);
       }
-  };
-
-  const uploadImage = async (uri, type) => {
-      setUploading(true);
-      try {
-          let formData = new FormData();
-          formData.append('image', {
-              uri: uri,
-              name: 'upload.jpg',
-              type: 'image/jpeg'
-          });
-
-          const res = await api.post('/api/upload', formData, {
-              headers: { 'Content-Type': 'multipart/form-data' }
-          });
-          
-          const imageUrl = res.data.url;
-          
-          await api.put('/api/user/profile', {
-              [type]: imageUrl
-          });
-
-          showToast("تم تحديث الصورة بنجاح", "success");
-          fetchProfileData(true);
-          login(await AsyncStorage.getItem('userToken')); 
-          
-      } catch (e) {
-          showToast("فشل رفع الصورة", "error");
-      } finally {
-          setUploading(false);
-      }
-  };
-
-  const pickImage = async (type) => {
-    const { status } = await ImagePicker.requestMediaLibraryPermissionsAsync();
-    if (status !== 'granted') {
-        showToast('نحتاج إذن الوصول للصور', 'error');
-        return;
-    }
-
-    let result = await ImagePicker.launchImageLibraryAsync({
-        mediaTypes: ImagePicker.MediaTypeOptions.Images,
-        allowsEditing: true,
-        aspect: type === 'banner' ? [16, 9] : [1, 1],
-        quality: 0.7,
-    });
-
-    if (!result.canceled) {
-        uploadImage(result.assets[0].uri, type);
-    }
-  };
-
-  const handleSaveSettings = async () => {
-      setUploading(true);
-      try {
-          await api.put('/api/user/profile', {
-              name: editName,
-              bio: editBio,
-              isHistoryPublic
-          });
-          showToast("تم حفظ التغييرات", "success");
-          setShowSettings(false);
-          login(await AsyncStorage.getItem('userToken')); 
-      } catch (e) {
-          showToast("فشل حفظ التغييرات", "error");
-      } finally {
-          setUploading(false);
-      }
-  };
-
-  const openSettings = () => {
-      setEditName(profileUser?.name || '');
-      setEditBio(profileUser?.bio || '');
-      setIsHistoryPublic(profileUser?.isHistoryPublic !== undefined ? profileUser.isHistoryPublic : true);
-      setShowSettings(true);
   };
 
   // --- Render Components ---
@@ -535,8 +457,23 @@ export default function ProfileScreen({ navigation, route }) {
   // Logic to show/hide tabs
   const showLibraryTabs = isSelf || (profileUser && profileUser.isHistoryPublic);
 
+  // Default Images Logic
+  const bannerSource = profileUser?.banner ? { uri: profileUser.banner } : require('../../assets/banner.png');
+  const avatarSource = profileUser?.picture ? { uri: profileUser.picture } : require('../../assets/adaptive-icon.png');
+
   return (
     <View style={styles.container}>
+      <StatusBar barStyle="light-content" />
+      
+      {/* Glassy Background - Same as AdminMainScreen */}
+      <ImageBackground 
+        source={require('../../assets/adaptive-icon.png')} 
+        style={styles.bgImage}
+        blurRadius={20}
+      >
+          <LinearGradient colors={['rgba(0,0,0,0.6)', '#000000']} style={StyleSheet.absoluteFill} />
+      </ImageBackground>
+
       <ScrollView 
         showsVerticalScrollIndicator={false}
         onScroll={Animated.event([{ nativeEvent: { contentOffset: { y: scrollY } } }], { useNativeDriver: false })}
@@ -545,16 +482,25 @@ export default function ProfileScreen({ navigation, route }) {
         {/* Hero Section */}
         <View style={styles.heroContainer}>
             <Image 
-                source={profileUser?.banner ? { uri: profileUser.banner } : null} 
+                source={bannerSource} 
                 style={styles.bannerImage}
                 contentFit="cover"
             />
             <LinearGradient colors={['transparent', 'rgba(0,0,0,0.8)', '#000000']} style={styles.heroGradient} />
             
+            {/* Header Controls */}
+            <View style={styles.headerControls}>
+                {!isSelf && (
+                    <TouchableOpacity style={styles.iconBtn} onPress={() => navigation.goBack()}>
+                        <Ionicons name="arrow-back" size={24} color="#fff" />
+                    </TouchableOpacity>
+                )}
+            </View>
+
             <View style={styles.profileInfo}>
                 <View style={styles.avatarContainer}>
                     <Image 
-                        source={profileUser?.picture ? { uri: profileUser.picture } : null} 
+                        source={avatarSource} 
                         style={styles.avatarImage} 
                         contentFit="cover" 
                     />
@@ -564,20 +510,6 @@ export default function ProfileScreen({ navigation, route }) {
                 
                 {renderDashboardButton()}
             </View>
-
-            {/* Settings button only for Self */}
-            {isSelf && (
-                <TouchableOpacity style={styles.settingsButton} onPress={openSettings}>
-                    <Ionicons name="settings-outline" size={22} color="#fff" />
-                </TouchableOpacity>
-            )}
-            
-            {/* Back Button if viewing another profile */}
-            {!isSelf && (
-                <TouchableOpacity style={[styles.settingsButton, {right: undefined, left: 20}]} onPress={() => navigation.goBack()}>
-                    <Ionicons name="arrow-back" size={22} color="#fff" />
-                </TouchableOpacity>
-            )}
         </View>
 
         {/* Tabs - Reordered & Conditional */}
@@ -597,106 +529,13 @@ export default function ProfileScreen({ navigation, route }) {
 
         <View style={{height: 100}} />
       </ScrollView>
-
-      {/* Settings Modal (Only for Self) */}
-      {isSelf && (
-      <Modal visible={showSettings} animationType="slide" presentationStyle="pageSheet">
-          <View style={styles.modalContainer}>
-              <View style={styles.modalHeader}>
-                  <Text style={styles.modalTitle}>تعديل الملف الشخصي</Text>
-                  <TouchableOpacity onPress={() => setShowSettings(false)}>
-                      <Ionicons name="close" size={24} color="#fff" />
-                  </TouchableOpacity>
-              </View>
-              
-              <ScrollView style={styles.modalContent}>
-                  {/* Banner Edit */}
-                  <TouchableOpacity style={styles.editBanner} onPress={() => pickImage('banner')}>
-                      <Image source={profileUser?.banner ? {uri: profileUser.banner} : null} style={StyleSheet.absoluteFill} contentFit="cover" />
-                      <View style={styles.editOverlay}>
-                          <Ionicons name="camera" size={24} color="#fff" />
-                          <Text style={{color:'#fff', marginTop: 5}}>تغيير الغلاف</Text>
-                      </View>
-                  </TouchableOpacity>
-                  
-                  {/* Avatar Edit */}
-                    <View style={{alignItems: 'center', marginBottom: 20}}>
-                      <TouchableOpacity style={styles.editAvatar} onPress={() => pickImage('picture')}>
-                          <Image source={profileUser?.picture ? {uri: profileUser.picture} : null} style={styles.avatarImage} contentFit="cover" />
-                          <View style={[styles.editOverlay, {borderRadius: 40}]}>
-                              <Ionicons name="camera" size={20} color="#fff" />
-                          </View>
-                      </TouchableOpacity>
-                      <Text style={{color: '#666', marginTop: 5}}>تغيير الصورة الشخصية</Text>
-                    </View>
-
-                  {/* Input Fields */}
-                  <View style={styles.inputGroup}>
-                      <Text style={styles.label}>الاسم</Text>
-                      <TextInput 
-                          style={styles.input} 
-                          value={editName} 
-                          onChangeText={setEditName}
-                          placeholder="اسم المستخدم"
-                          placeholderTextColor="#666" 
-                      />
-                  </View>
-
-                  <View style={styles.inputGroup}>
-                      <Text style={styles.label}>النبذة التعريفية</Text>
-                      <TextInput 
-                          style={[styles.input, {height: 100}]} 
-                          value={editBio} 
-                          onChangeText={setEditBio}
-                          placeholder="اكتب شيئاً عن نفسك..."
-                          placeholderTextColor="#666"
-                          multiline
-                          textAlignVertical="top"
-                      />
-                  </View>
-
-                  <View style={styles.switchRow}>
-                      <Text style={styles.switchLabel}>جعل سجل القراءة عام</Text>
-                      <Switch 
-                          value={isHistoryPublic} 
-                          onValueChange={setIsHistoryPublic}
-                          trackColor={{ false: "#333", true: "#4a7cc7" }}
-                      />
-                  </View>
-
-                  {/* Privacy Policy Link */}
-                  <TouchableOpacity 
-                      style={styles.privacyLink}
-                      onPress={() => {
-                          setShowSettings(false);
-                          navigation.navigate('PrivacyPolicy');
-                      }}
-                  >
-                      <View style={{flexDirection:'row', alignItems:'center'}}>
-                          <Text style={styles.privacyText}>سياسة الخصوصية</Text>
-                          <Ionicons name="shield-checkmark-outline" size={18} color="#aaa" style={{marginLeft: 8}} />
-                      </View>
-                      <Ionicons name="chevron-back" size={18} color="#666" />
-                  </TouchableOpacity>
-
-                  <TouchableOpacity style={styles.saveButton} onPress={handleSaveSettings} disabled={uploading}>
-                      {uploading ? <ActivityIndicator color="#fff" /> : <Text style={styles.saveButtonText}>حفظ التغييرات</Text>}
-                  </TouchableOpacity>
-
-                  <TouchableOpacity style={styles.logoutButton} onPress={() => { setShowSettings(false); logout(); }}>
-                      <Text style={styles.logoutButtonText}>تسجيل الخروج</Text>
-                  </TouchableOpacity>
-
-              </ScrollView>
-          </View>
-      </Modal>
-      )}
     </View>
   );
 }
 
 const styles = StyleSheet.create({
   container: { flex: 1, backgroundColor: '#000000' },
+  bgImage: { ...StyleSheet.absoluteFillObject },
   
   // Hero Section
   heroContainer: {
@@ -718,6 +557,25 @@ const styles = StyleSheet.create({
   heroGradient: {
       position: 'absolute',
       top: 0, left: 0, right: 0, bottom: 0
+  },
+  headerControls: {
+      position: 'absolute',
+      top: 50,
+      left: 0,
+      right: 0,
+      flexDirection: 'row',
+      justifyContent: 'flex-end', 
+      paddingHorizontal: 20,
+      zIndex: 10
+  },
+  iconBtn: {
+      width: 40,
+      height: 40,
+      borderRadius: 20,
+      backgroundColor: 'rgba(0,0,0,0.5)',
+      justifyContent: 'center',
+      alignItems: 'center',
+      marginLeft: 10,
   },
   profileInfo: {
       alignItems: 'center',
@@ -766,25 +624,13 @@ const styles = StyleSheet.create({
       fontWeight: 'bold',
       fontSize: 14
   },
-  settingsButton: {
-      position: 'absolute',
-      top: 50,
-      right: 20,
-      width: 40,
-      height: 40,
-      borderRadius: 20,
-      backgroundColor: 'rgba(0,0,0,0.5)',
-      justifyContent: 'center',
-      alignItems: 'center',
-      zIndex: 10
-  },
 
   // Tabs
   tabsContainer: {
       flexDirection: 'row-reverse',
-      backgroundColor: '#000',
+      backgroundColor: 'rgba(0,0,0,0.5)', // Semi-transparent for glass effect
       borderBottomWidth: 1,
-      borderBottomColor: '#222',
+      borderBottomColor: 'rgba(255,255,255,0.1)',
   },
   tabButton: {
       flex: 1,
@@ -794,7 +640,7 @@ const styles = StyleSheet.create({
       position: 'relative'
   },
   tabText: {
-      color: '#666',
+      color: '#ccc',
       fontSize: 14,
       fontWeight: '500'
   },
@@ -820,7 +666,7 @@ const styles = StyleSheet.create({
       marginBottom: 25,
       paddingBottom: 20,
       borderBottomWidth: 1,
-      borderBottomColor: '#222'
+      borderBottomColor: 'rgba(255,255,255,0.1)'
   },
   sectionTitle: {
       color: '#fff',
@@ -871,7 +717,7 @@ const styles = StyleSheet.create({
   },
   separator: {
       height: 1,
-      backgroundColor: '#1a1a1a',
+      backgroundColor: 'rgba(255,255,255,0.1)',
       width: '100%'
   },
 
@@ -879,19 +725,19 @@ const styles = StyleSheet.create({
   gridContainer: {
       flexDirection: 'row-reverse',
       flexWrap: 'wrap',
-      gap: 15, // زيادة المسافة قليلاً
+      gap: 15, 
       justifyContent: 'flex-start'
   },
   mobileCard: {
       width: '100%',
-      height: 120, // Horizontal card height
-      backgroundColor: '#161616',
+      height: 120, 
+      backgroundColor: 'rgba(22, 22, 22, 0.8)', // Semi-transparent
       borderRadius: 12,
       marginBottom: 10,
-      flexDirection: 'row-reverse', // Image Right, Info Left
+      flexDirection: 'row-reverse', 
       overflow: 'hidden',
       borderWidth: 1,
-      borderColor: '#222',
+      borderColor: 'rgba(255,255,255,0.1)',
   },
   mobileImage: {
       width: 80,
@@ -904,17 +750,17 @@ const styles = StyleSheet.create({
       alignItems: 'flex-end'
   },
   tabletCard: {
-      width: 160, // تصغير عرض البطاقة لتناسب الصورة
-      backgroundColor: '#161616',
+      width: 160, 
+      backgroundColor: 'rgba(22, 22, 22, 0.8)',
       borderRadius: 12,
       marginBottom: 15,
       overflow: 'hidden',
       borderWidth: 1,
-      borderColor: '#222',
+      borderColor: 'rgba(255,255,255,0.1)',
   },
   tabletImage: {
       width: '100%',
-      height: 220, // ارتفاع متناسب مع العرض 160
+      height: 220, 
       backgroundColor: '#000',
   },
   cardInfo: {
@@ -926,7 +772,6 @@ const styles = StyleSheet.create({
       fontWeight: 'bold',
       textAlign: 'right',
       marginBottom: 8,
-      // Removed fixed height to allow flexible 2 lines if needed
   },
   novelStats: {
       flexDirection: 'row-reverse',
@@ -946,13 +791,13 @@ const styles = StyleSheet.create({
   // History Style (Horizontal Card)
   historyCard: { 
       flexDirection: 'row-reverse', 
-      backgroundColor: '#161616', 
+      backgroundColor: 'rgba(22, 22, 22, 0.8)', 
       borderRadius: 12, 
       padding: 10, 
       height: 110, 
       alignItems: 'center', 
       borderWidth: 1, 
-      borderColor: '#333',
+      borderColor: 'rgba(255,255,255,0.1)',
   },
   historyImage: { 
       width: 70, 
@@ -1015,139 +860,17 @@ const styles = StyleSheet.create({
 
   // Load More Button
   loadMoreButton: {
-      backgroundColor: '#1a1a1a',
+      backgroundColor: 'rgba(26, 26, 26, 0.8)',
       paddingVertical: 12,
       borderRadius: 8,
       alignItems: 'center',
       marginTop: 20,
       borderWidth: 1,
-      borderColor: '#333'
+      borderColor: 'rgba(255,255,255,0.1)'
   },
   loadMoreText: {
       color: '#4a7cc7',
       fontWeight: '600',
       fontSize: 14
   },
-
-  // Modal
-  modalContainer: {
-      flex: 1,
-      backgroundColor: '#111'
-  },
-  modalHeader: {
-      flexDirection: 'row',
-      justifyContent: 'space-between',
-      alignItems: 'center',
-      padding: 20,
-      borderBottomWidth: 1,
-      borderBottomColor: '#222'
-  },
-  modalTitle: {
-      color: '#fff',
-      fontSize: 18,
-      fontWeight: 'bold'
-  },
-  modalContent: {
-      padding: 20
-  },
-  editBanner: {
-      height: 150,
-      backgroundColor: '#222',
-      borderRadius: 12,
-      marginBottom: 10,
-      overflow: 'hidden',
-      justifyContent: 'center',
-      alignItems: 'center',
-      borderWidth: 1,
-      borderColor: '#333'
-  },
-  editAvatar: {
-      width: 80,
-      height: 80,
-      borderRadius: 40,
-      overflow: 'hidden',
-      backgroundColor: '#222',
-      borderWidth: 1,
-      borderColor: '#333',
-      justifyContent: 'center',
-      alignItems: 'center'
-  },
-  editOverlay: {
-      position: 'absolute',
-      top: 0, left: 0, right: 0, bottom: 0,
-      justifyContent: 'center',
-      alignItems: 'center',
-      backgroundColor: 'rgba(0,0,0,0.4)',
-  },
-  inputGroup: {
-      marginBottom: 20
-  },
-  label: {
-      color: '#ccc',
-      marginBottom: 8,
-      textAlign: 'right',
-      fontSize: 14
-  },
-  input: {
-      backgroundColor: '#222',
-      color: '#fff',
-      borderRadius: 8,
-      padding: 12,
-      fontSize: 16,
-      borderWidth: 1,
-      borderColor: '#333',
-      textAlign: 'right'
-  },
-  switchRow: {
-      flexDirection: 'row-reverse',
-      justifyContent: 'space-between',
-      alignItems: 'center',
-      marginBottom: 30,
-      backgroundColor: '#222',
-      padding: 15,
-      borderRadius: 8
-  },
-  switchLabel: {
-      color: '#fff',
-      fontSize: 16
-  },
-  privacyLink: {
-      flexDirection: 'row',
-      justifyContent: 'space-between',
-      alignItems: 'center',
-      backgroundColor: '#222',
-      padding: 15,
-      borderRadius: 8,
-      marginBottom: 20,
-      borderWidth: 1,
-      borderColor: '#333'
-  },
-  privacyText: {
-      color: '#ccc',
-      fontSize: 16,
-      fontWeight: '500'
-  },
-  saveButton: {
-      backgroundColor: '#4a7cc7',
-      padding: 15,
-      borderRadius: 8,
-      alignItems: 'center',
-      marginBottom: 15
-  },
-  saveButtonText: {
-      color: '#fff',
-      fontWeight: 'bold',
-      fontSize: 16
-  },
-  logoutButton: {
-      backgroundColor: '#ff4444',
-      padding: 15,
-      borderRadius: 8,
-      alignItems: 'center'
-  },
-  logoutButtonText: {
-      color: '#fff',
-      fontWeight: 'bold',
-      fontSize: 16
-  }
 });
