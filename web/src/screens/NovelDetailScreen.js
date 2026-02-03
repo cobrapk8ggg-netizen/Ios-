@@ -327,9 +327,11 @@ export default function NovelDetailScreen({ route, navigation }) {
   const AuthorWidget = () => {
       // Logic: Use profile data if fetched, otherwise fallback to novel basic data
       const displayName = authorProfile?.name || fullNovel.author || 'Zeus';
-      const displayAvatar = authorProfile?.picture; // If null, image component handles fallback
-      const displayBanner = authorProfile?.banner;
       const targetId = authorProfile?._id;
+
+      // Set default images if not provided
+      const displayAvatar = authorProfile?.picture ? { uri: authorProfile.picture } : require('../../assets/adaptive-icon.png');
+      const displayBanner = authorProfile?.banner ? { uri: authorProfile.banner } : require('../../assets/banner.png');
 
       return (
           <View style={styles.authorSection}>
@@ -346,16 +348,12 @@ export default function NovelDetailScreen({ route, navigation }) {
                 }}
               >
                   <View style={styles.authorBannerWrapper}>
-                    {displayBanner ? (
-                        <Image source={{ uri: displayBanner }} style={styles.authorBannerImage} contentFit="cover" />
-                    ) : (
-                        <View style={[styles.authorBannerImage, {backgroundColor: '#222'}]} /> 
-                    )}
+                    <Image source={displayBanner} style={styles.authorBannerImage} contentFit="cover" />
                     <LinearGradient colors={['rgba(0,0,0,0.2)', 'rgba(0,0,0,0.8)']} style={StyleSheet.absoluteFill} />
                     <View style={styles.authorOverlayContent}>
                         <View style={styles.authorAvatarWrapper}>
                             <Image 
-                                source={displayAvatar ? { uri: displayAvatar } : require('../../assets/adaptive-icon.png')} 
+                                source={displayAvatar} 
                                 style={styles.authorAvatarImage}
                                 contentFit="cover"
                             />
