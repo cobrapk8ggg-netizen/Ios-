@@ -110,7 +110,7 @@ const ADVANCED_COLORS = [
 
 // Quote Styles Configuration
 const QUOTE_STYLES = [
-    { id: 'all', label: 'الكل', preview: '« “ " »' },
+    { id: 'all', label: 'بدون', preview: 'لا شيء' },
     { id: 'guillemets', label: '« »', preview: '«نص»' },
     { id: 'curly', label: '“ ”', preview: '“نص”' },
     { id: 'straight', label: '" "', preview: '"نص"' },
@@ -137,18 +137,19 @@ const [showSettings, setShowSettings] = useState(false);
 const [settingsView, setSettingsView] = useState('main'); // 'main', 'appearance'
 
 // --- ADVANCED FORMATTING STATE ---
-// Dialogue
+// Dialogue - Default OFF
 const [enableDialogue, setEnableDialogue] = useState(false);
 const [dialogueColor, setDialogueColor] = useState('#4ade80');
 const [dialogueSize, setDialogueSize] = useState(100); // Percentage
 const [hideQuotes, setHideQuotes] = useState(false);
-const [selectedQuoteStyle, setSelectedQuoteStyle] = useState('all'); // 'all', 'guillemets', 'curly', etc.
+const [selectedQuoteStyle, setSelectedQuoteStyle] = useState('all'); 
 
-// Markdown (Bold)
+// Markdown (Bold) - Default OFF
 const [enableMarkdown, setEnableMarkdown] = useState(false);
-const [markdownColor, setMarkdownColor] = useState('#ffffff'); // Default white/inherit
+const [markdownColor, setMarkdownColor] = useState('#ffffff'); 
 const [markdownSize, setMarkdownSize] = useState(100); // Percentage
 const [hideMarkdownMarks, setHideMarkdownMarks] = useState(false);
+const [selectedMarkdownStyle, setSelectedMarkdownStyle] = useState('all'); 
 
 // --- REPLACEMENTS STATE ---
 const [folders, setFolders] = useState([]); 
@@ -218,7 +219,7 @@ const fetchCleanerWords = async () => {
 // --- Settings Logic ---
 const loadSettings = async () => {
     try {
-        const saved = await AsyncStorage.getItem('@reader_settings_v3'); // v3 for new quote features
+        const saved = await AsyncStorage.getItem('@reader_settings_v3'); 
         if (saved) {
             const parsed = JSON.parse(saved);
             if (parsed.fontSize) setFontSize(parsed.fontSize);
@@ -243,6 +244,7 @@ const loadSettings = async () => {
             if (parsed.markdownColor) setMarkdownColor(parsed.markdownColor);
             if (parsed.markdownSize) setMarkdownSize(parsed.markdownSize);
             if (parsed.hideMarkdownMarks !== undefined) setHideMarkdownMarks(parsed.hideMarkdownMarks);
+            if (parsed.selectedMarkdownStyle) setSelectedMarkdownStyle(parsed.selectedMarkdownStyle);
         }
     } catch (e) { console.error("Error loading settings", e); }
 };
@@ -659,12 +661,24 @@ const formattedContent = getProcessedContent
     .map(line => {
         let processedLine = line;
 
-        // --- MARKDOWN PROCESSING ---
+        // --- MARKDOWN PROCESSING (BOLD) ---
         if (enableMarkdown) {
             const markClass = hideMarkdownMarks ? 'mark-hidden' : 'mark-visible';
-            // Handles **bold**
+            
+            // 🔥 Quote logic for Bold
+            let openQuote = '', closeQuote = '';
+            if (selectedMarkdownStyle === 'guillemets') { openQuote = '«'; closeQuote = '»'; }
+            else if (selectedMarkdownStyle === 'curly') { openQuote = '“'; closeQuote = '”'; }
+            else if (selectedMarkdownStyle === 'straight') { openQuote = '"'; closeQuote = '"'; }
+            else if (selectedMarkdownStyle === 'single') { openQuote = '‘'; closeQuote = '’'; }
+            // 'all' means default/no extra quotes in this context
+
+            // The regex handles **bold** content
             processedLine = processedLine.replace(/\*\*(.*?)\*\*/g, (match, content) => {
-                return `<span class="cm-markdown-bold"><span class="${markClass}">**</span>${content}<span class="${markClass}">**</span></span>`;
+                const quoteStart = openQuote ? `<span class="cm-quote-style">${openQuote}</span>` : '';
+                const quoteEnd = closeQuote ? `<span class="cm-quote-style">${closeQuote}</span>` : '';
+
+                return `<span class="cm-markdown-bold"><span class="${markClass}">**</span>${quoteStart}${content}${quoteEnd}<span class="${markClass}">**</span></span>`;
             });
         }
 
@@ -765,6 +779,7 @@ return `
           font-size: ${markdownSize}%;
           transition: color 0.3s ease, font-size 0.3s ease;
       }
+      .cm-quote-style { opacity: 1; }
       .quote-mark { opacity: 1; transition: opacity 0.3s ease; }
       .quote-mark.hidden { opacity: 0; font-size: 0; }
       .mark-visible { opacity: 1; }
@@ -1132,226 +1147,247 @@ return (
       </View>
   </Modal>
 
-  {/* Unified Settings Modal */}
+  {/* Unified Settings Modal (Fixed Scrolling) */}
   <Modal visible={showSettings} transparent animationType="slide" onRequestClose={() => setShowSettings(false)}>
-    <TouchableOpacity style={styles.modalOverlay} activeOpacity={1} onPress={() => setShowSettings(false)}>
-      <View style={styles.settingsSheet}>
-        <View style={styles.settingsHandle} />
+    <View style={styles.modalOverlay}>
+        <TouchableOpacity style={styles.modalBackdrop} activeOpacity={1} onPress={() => setShowSettings(false)} />
         
-        {settingsView === 'main' ? (
-            // Main Settings Menu (Hub)
-            <>
-                <View style={styles.settingsHeader}>
-                    <Text style={styles.settingsTitle}>الإعدادات</Text>
-                    <TouchableOpacity onPress={() => setShowSettings(false)}><Ionicons name="close-circle" size={30} color="#555" /></TouchableOpacity>
-                </View>
-                <View style={styles.settingsGrid}>
-                    <TouchableOpacity style={styles.settingsCard} onPress={() => setSettingsView('appearance')}>
-                        <View style={styles.cardIcon}>
-                            <Ionicons name="text-outline" size={32} color="#fff" />
-                        </View>
-                        <Text style={styles.cardTitle}>مظهر القراءة</Text>
-                        <Text style={styles.cardSub}>الخط، الحجم، الألوان</Text>
-                    </TouchableOpacity>
-
-                    <TouchableOpacity style={styles.settingsCard} onPress={() => openRightDrawer('replacements')}>
-                        <View style={[styles.cardIcon, { backgroundColor: '#4a7cc7' }]}>
-                            <Ionicons name="swap-horizontal-outline" size={32} color="#fff" />
-                        </View>
-                        <Text style={styles.cardTitle}>استبدال الكلمات</Text>
-                        <Text style={styles.cardSub}>تغيير كلمات داخل الفصل</Text>
-                    </TouchableOpacity>
-
-                    {isAdmin && (
-                        <TouchableOpacity style={[styles.settingsCard, {borderColor: '#b91c1c'}]} onPress={() => openRightDrawer('cleaner')}>
-                            <View style={[styles.cardIcon, { backgroundColor: '#b91c1c' }]}>
-                                <Ionicons name="trash-outline" size={32} color="#fff" />
+        <View style={styles.settingsSheet}>
+            <View style={styles.settingsHandle} />
+            
+            {settingsView === 'main' ? (
+                // Main Settings Menu (Hub)
+                <>
+                    <View style={styles.settingsHeader}>
+                        <Text style={styles.settingsTitle}>الإعدادات</Text>
+                        <TouchableOpacity onPress={() => setShowSettings(false)}><Ionicons name="close-circle" size={30} color="#555" /></TouchableOpacity>
+                    </View>
+                    <View style={styles.settingsGrid}>
+                        <TouchableOpacity style={styles.settingsCard} onPress={() => setSettingsView('appearance')}>
+                            <View style={styles.cardIcon}>
+                                <Ionicons name="text-outline" size={32} color="#fff" />
                             </View>
-                            <Text style={[styles.cardTitle, {color: '#ff4444'}]}>الحذف الشامل</Text>
-                            <Text style={styles.cardSub}>حذف حقوق/نصوص من السيرفر</Text>
+                            <Text style={styles.cardTitle}>مظهر القراءة</Text>
+                            <Text style={styles.cardSub}>الخط، الحجم، الألوان</Text>
                         </TouchableOpacity>
-                    )}
-                </View>
-            </>
-        ) : (
-            // Appearance View
-            <ScrollView showsVerticalScrollIndicator={false}>
-                <View style={styles.settingsHeader}>
-                    <View style={{flexDirection: 'row', alignItems: 'center', gap: 10}}>
-                        <TouchableOpacity onPress={() => setSettingsView('main')} style={{padding: 5}}>
-                            <Ionicons name="arrow-back" size={24} color="#fff" />
-                        </TouchableOpacity>
-                        <Text style={styles.settingsTitle}>مظهر القراءة</Text>
-                    </View>
-                    <TouchableOpacity onPress={() => setShowSettings(false)}><Ionicons name="close-circle" size={30} color="#555" /></TouchableOpacity>
-                </View>
 
-                {/* Font Section */}
-                <View style={styles.designCard}>
-                    <Text style={styles.cardSectionTitle}>نوع الخط</Text>
-                    <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.fontList}>
-                        {FONT_OPTIONS.map((font) => (
-                            <TouchableOpacity 
-                                key={font.id} 
-                                onPress={() => handleFontChange(font)} 
-                                style={[styles.fontPill, fontFamily.id === font.id && styles.fontPillActive]}
-                            >
-                                <Text style={[styles.fontPillText, fontFamily.id === font.id && styles.fontPillTextActive]}>{font.name}</Text>
-                            </TouchableOpacity>
-                        ))}
-                    </ScrollView>
-                </View>
-
-                {/* Size Section */}
-                <View style={styles.designCard}>
-                    <Text style={styles.cardSectionTitle}>حجم الخط</Text>
-                    <View style={styles.sizeControlRow}>
-                        <TouchableOpacity onPress={() => changeFontSize(-2)} style={styles.sizeBtn}><Ionicons name="remove" size={20} color="#fff" /></TouchableOpacity>
-                        <Text style={styles.sizeValue}>{fontSize}</Text>
-                        <TouchableOpacity onPress={() => changeFontSize(2)} style={styles.sizeBtn}><Ionicons name="add" size={20} color="#fff" /></TouchableOpacity>
-                    </View>
-                </View>
-
-                {/* Themes Section */}
-                <View style={styles.designCard}>
-                    <Text style={styles.cardSectionTitle}>السمة</Text>
-                    <View style={styles.themeGrid}>
-                        {[ { color: '#fff', name: 'فاتح' }, { color: '#2d2d2d', name: 'داكن' }, { color: '#0a0a0a', name: 'أسود' } ].map(theme => (
-                            <TouchableOpacity 
-                                key={theme.color} 
-                                onPress={() => changeTheme(theme.color)} 
-                                style={[styles.themeCircle, {backgroundColor: theme.color}, bgColor === theme.color && styles.themeCircleActive]}
-                            >
-                                {bgColor === theme.color && <Ionicons name="checkmark" size={16} color={theme.color === '#fff' ? '#000' : '#fff'} />}
-                            </TouchableOpacity>
-                        ))}
-                    </View>
-                </View>
-
-                {/* DIALOGUE FORMATTING CARD */}
-                <View style={[styles.advancedCard, !enableDialogue && {opacity: 0.8}]}>
-                    <View style={styles.advancedHeader}>
-                        <Switch 
-                            value={enableDialogue} 
-                            onValueChange={(val) => { setEnableDialogue(val); saveSettings({ enableDialogue: val }); }}
-                            trackColor={{ false: "#333", true: "#4ade80" }}
-                            thumbColor={"#fff"}
-                        />
-                        <View style={{height: 1, flex: 1, backgroundColor: '#333', marginHorizontal: 15}} />
-                        <Text style={styles.advancedTitle}>تنسيق الحوار</Text>
-                    </View>
-
-                    {enableDialogue && (
-                        <>
-                            {/* NEW: Interactive Quote Style Selector */}
-                            <Text style={[styles.cardSectionTitle, {marginTop: 10}]}>اختر نمط الأقواس</Text>
-                            <View style={styles.previewRow}>
-                                {QUOTE_STYLES.map((style) => (
-                                    <TouchableOpacity 
-                                        key={style.id}
-                                        style={[
-                                            styles.previewBox, 
-                                            selectedQuoteStyle === style.id && {backgroundColor: '#1a4030', borderColor: '#4ade80'}
-                                        ]}
-                                        onPress={() => { setSelectedQuoteStyle(style.id); saveSettings({ selectedQuoteStyle: style.id }); }}
-                                    >
-                                        <Text style={[
-                                            styles.previewText, 
-                                            selectedQuoteStyle === style.id && {color: '#4ade80'}
-                                        ]}>{style.preview}</Text>
-                                    </TouchableOpacity>
-                                ))}
+                        <TouchableOpacity style={styles.settingsCard} onPress={() => openRightDrawer('replacements')}>
+                            <View style={[styles.cardIcon, { backgroundColor: '#4a7cc7' }]}>
+                                <Ionicons name="swap-horizontal-outline" size={32} color="#fff" />
                             </View>
+                            <Text style={styles.cardTitle}>استبدال الكلمات</Text>
+                            <Text style={styles.cardSub}>تغيير كلمات داخل الفصل</Text>
+                        </TouchableOpacity>
 
-                            {/* Colors */}
-                            <Text style={styles.cardSectionTitle}>اللون</Text>
-                            <View style={styles.colorPalette}>
-                                {ADVANCED_COLORS.map((c) => (
-                                    <TouchableOpacity 
-                                        key={c.color} 
-                                        style={[styles.paletteCircle, {backgroundColor: c.color}, dialogueColor === c.color && styles.paletteCircleActive]}
-                                        onPress={() => { setDialogueColor(c.color); saveSettings({ dialogueColor: c.color }); }}
+                        {isAdmin && (
+                            <TouchableOpacity style={[styles.settingsCard, {borderColor: '#b91c1c'}]} onPress={() => openRightDrawer('cleaner')}>
+                                <View style={[styles.cardIcon, { backgroundColor: '#b91c1c' }]}>
+                                    <Ionicons name="trash-outline" size={32} color="#fff" />
+                                </View>
+                                <Text style={[styles.cardTitle, {color: '#ff4444'}]}>الحذف الشامل</Text>
+                                <Text style={styles.cardSub}>حذف حقوق/نصوص من السيرفر</Text>
+                            </TouchableOpacity>
+                        )}
+                    </View>
+                </>
+            ) : (
+                // Appearance View
+                <ScrollView showsVerticalScrollIndicator={false} contentContainerStyle={{paddingBottom: 50}}>
+                    <View style={styles.settingsHeader}>
+                        <View style={{flexDirection: 'row', alignItems: 'center', gap: 10}}>
+                            <TouchableOpacity onPress={() => setSettingsView('main')} style={{padding: 5}}>
+                                <Ionicons name="arrow-back" size={24} color="#fff" />
+                            </TouchableOpacity>
+                            <Text style={styles.settingsTitle}>مظهر القراءة</Text>
+                        </View>
+                        <TouchableOpacity onPress={() => setShowSettings(false)}><Ionicons name="close-circle" size={30} color="#555" /></TouchableOpacity>
+                    </View>
+
+                    {/* Font Section */}
+                    <View style={styles.designCard}>
+                        <Text style={styles.cardSectionTitle}>نوع الخط</Text>
+                        <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.fontList}>
+                            {FONT_OPTIONS.map((font) => (
+                                <TouchableOpacity 
+                                    key={font.id} 
+                                    onPress={() => handleFontChange(font)} 
+                                    style={[styles.fontPill, fontFamily.id === font.id && styles.fontPillActive]}
+                                >
+                                    <Text style={[styles.fontPillText, fontFamily.id === font.id && styles.fontPillTextActive]}>{font.name}</Text>
+                                </TouchableOpacity>
+                            ))}
+                        </ScrollView>
+                    </View>
+
+                    {/* Size Section */}
+                    <View style={styles.designCard}>
+                        <Text style={styles.cardSectionTitle}>حجم الخط</Text>
+                        <View style={styles.sizeControlRow}>
+                            <TouchableOpacity onPress={() => changeFontSize(-2)} style={styles.sizeBtn}><Ionicons name="remove" size={20} color="#fff" /></TouchableOpacity>
+                            <Text style={styles.sizeValue}>{fontSize}</Text>
+                            <TouchableOpacity onPress={() => changeFontSize(2)} style={styles.sizeBtn}><Ionicons name="add" size={20} color="#fff" /></TouchableOpacity>
+                        </View>
+                    </View>
+
+                    {/* Themes Section */}
+                    <View style={styles.designCard}>
+                        <Text style={styles.cardSectionTitle}>السمة</Text>
+                        <View style={styles.themeGrid}>
+                            {[ { color: '#fff', name: 'فاتح' }, { color: '#2d2d2d', name: 'داكن' }, { color: '#0a0a0a', name: 'أسود' } ].map(theme => (
+                                <TouchableOpacity 
+                                    key={theme.color} 
+                                    onPress={() => changeTheme(theme.color)} 
+                                    style={[styles.themeCircle, {backgroundColor: theme.color}, bgColor === theme.color && styles.themeCircleActive]}
+                                >
+                                    {bgColor === theme.color && <Ionicons name="checkmark" size={16} color={theme.color === '#fff' ? '#000' : '#fff'} />}
+                                </TouchableOpacity>
+                            ))}
+                        </View>
+                    </View>
+
+                    {/* DIALOGUE FORMATTING CARD */}
+                    <View style={[styles.advancedCard, !enableDialogue && {opacity: 0.8}]}>
+                        <View style={styles.advancedHeader}>
+                            <Switch 
+                                value={enableDialogue} 
+                                onValueChange={(val) => { setEnableDialogue(val); saveSettings({ enableDialogue: val }); }}
+                                trackColor={{ false: "#333", true: "#4ade80" }}
+                                thumbColor={"#fff"}
+                            />
+                            <View style={{height: 1, flex: 1, backgroundColor: '#333', marginHorizontal: 15}} />
+                            <Text style={styles.advancedTitle}>تنسيق الحوار</Text>
+                        </View>
+
+                        {enableDialogue && (
+                            <>
+                                {/* Quote Style Selector */}
+                                <Text style={[styles.cardSectionTitle, {marginTop: 10}]}>اختر نمط الأقواس</Text>
+                                <View style={styles.previewRow}>
+                                    {QUOTE_STYLES.map((style) => (
+                                        <TouchableOpacity 
+                                            key={style.id}
+                                            style={[
+                                                styles.previewBox, 
+                                                selectedQuoteStyle === style.id && {backgroundColor: '#1a4030', borderColor: '#4ade80'}
+                                            ]}
+                                            onPress={() => { setSelectedQuoteStyle(style.id); saveSettings({ selectedQuoteStyle: style.id }); }}
+                                        >
+                                            <Text style={[
+                                                styles.previewText, 
+                                                selectedQuoteStyle === style.id && {color: '#4ade80'}
+                                            ]}>{style.preview}</Text>
+                                        </TouchableOpacity>
+                                    ))}
+                                </View>
+
+                                {/* Colors */}
+                                <Text style={styles.cardSectionTitle}>اللون</Text>
+                                <View style={styles.colorPalette}>
+                                    {ADVANCED_COLORS.map((c) => (
+                                        <TouchableOpacity 
+                                            key={c.color} 
+                                            style={[styles.paletteCircle, {backgroundColor: c.color}, dialogueColor === c.color && styles.paletteCircleActive]}
+                                            onPress={() => { setDialogueColor(c.color); saveSettings({ dialogueColor: c.color }); }}
+                                        />
+                                    ))}
+                                </View>
+
+                                {/* Size Slider (Custom) */}
+                                <View style={styles.sliderRow}>
+                                    <Text style={styles.sliderLabel}>{dialogueSize}%</Text>
+                                    <CustomSlider
+                                        minimumValue={80}
+                                        maximumValue={150}
+                                        step={5}
+                                        value={dialogueSize}
+                                        onValueChange={(val) => { setDialogueSize(val); saveSettings({ dialogueSize: val }); }}
+                                        activeColor="#4ade80"
                                     />
-                                ))}
-                            </View>
+                                    <Text style={styles.sliderTitle}>حجم الحوار</Text>
+                                </View>
 
-                            {/* Size Slider (Custom) */}
-                            <View style={styles.sliderRow}>
-                                <Text style={styles.sliderLabel}>{dialogueSize}%</Text>
-                                <CustomSlider
-                                    minimumValue={80}
-                                    maximumValue={150}
-                                    step={5}
-                                    value={dialogueSize}
-                                    onValueChange={(val) => { setDialogueSize(val); saveSettings({ dialogueSize: val }); }}
-                                    activeColor="#4ade80"
-                                />
-                                <Text style={styles.sliderTitle}>حجم الحوار</Text>
-                            </View>
-
-                            {/* Hide Quotes Toggle */}
-                            <View style={styles.toggleRow}>
-                                <Switch 
-                                    value={hideQuotes} 
-                                    onValueChange={(val) => { setHideQuotes(val); saveSettings({ hideQuotes: val }); }}
-                                    trackColor={{ false: "#333", true: "#4ade80" }}
-                                    thumbColor={"#fff"}
-                                />
-                                <Text style={styles.toggleLabel}>إخفاء علامات التنسيق</Text>
-                            </View>
-                        </>
-                    )}
-                </View>
-
-                {/* MARKDOWN FORMATTING CARD */}
-                <View style={[styles.advancedCard, !enableMarkdown && {opacity: 0.8}]}>
-                    <View style={styles.advancedHeader}>
-                        <Switch 
-                            value={enableMarkdown} 
-                            onValueChange={(val) => { setEnableMarkdown(val); saveSettings({ enableMarkdown: val }); }}
-                            trackColor={{ false: "#333", true: "#fff" }} // White accent for bold
-                            thumbColor={"#fff"}
-                        />
-                        <View style={{height: 1, flex: 1, backgroundColor: '#333', marginHorizontal: 15}} />
-                        <Text style={styles.advancedTitle}>الخط العريض (BOLD)</Text>
+                                {/* Hide Quotes Toggle */}
+                                <View style={styles.toggleRow}>
+                                    <Switch 
+                                        value={hideQuotes} 
+                                        onValueChange={(val) => { setHideQuotes(val); saveSettings({ hideQuotes: val }); }}
+                                        trackColor={{ false: "#333", true: "#4ade80" }}
+                                        thumbColor={"#fff"}
+                                    />
+                                    <Text style={styles.toggleLabel}>إخفاء علامات التنسيق</Text>
+                                </View>
+                            </>
+                        )}
                     </View>
 
-                    {enableMarkdown && (
-                        <>
-                            {/* Size Slider */}
-                            <View style={styles.sliderRow}>
-                                <Text style={styles.sliderLabel}>{markdownSize}%</Text>
-                                <CustomSlider
-                                    minimumValue={80}
-                                    maximumValue={150}
-                                    step={5}
-                                    value={markdownSize}
-                                    onValueChange={(val) => { setMarkdownSize(val); saveSettings({ markdownSize: val }); }}
-                                    activeColor="#fff"
-                                />
-                                <Text style={styles.sliderTitle}>حجم الخط العريض</Text>
-                            </View>
+                    {/* MARKDOWN FORMATTING CARD */}
+                    <View style={[styles.advancedCard, !enableMarkdown && {opacity: 0.8}]}>
+                        <View style={styles.advancedHeader}>
+                            <Switch 
+                                value={enableMarkdown} 
+                                onValueChange={(val) => { setEnableMarkdown(val); saveSettings({ enableMarkdown: val }); }}
+                                trackColor={{ false: "#333", true: "#fff" }} // White accent for bold
+                                thumbColor={"#fff"}
+                            />
+                            <View style={{height: 1, flex: 1, backgroundColor: '#333', marginHorizontal: 15}} />
+                            <Text style={styles.advancedTitle}>الخط العريض (BOLD)</Text>
+                        </View>
 
-                            {/* Hide Marks Toggle */}
-                            <View style={styles.toggleRow}>
-                                <Switch 
-                                    value={hideMarkdownMarks} 
-                                    onValueChange={(val) => { setHideMarkdownMarks(val); saveSettings({ hideMarkdownMarks: val }); }}
-                                    trackColor={{ false: "#333", true: "#fff" }}
-                                    thumbColor={"#fff"}
-                                />
-                                <Text style={styles.toggleLabel}>إخفاء علامات التنسيق (مثل **)</Text>
-                            </View>
-                        </>
-                    )}
-                </View>
+                        {enableMarkdown && (
+                            <>
+                                {/* 🔥 NEW: Quote Style Selector for Bold */}
+                                <Text style={[styles.cardSectionTitle, {marginTop: 10}]}>اختر نمط الأقواس</Text>
+                                <View style={styles.previewRow}>
+                                    {QUOTE_STYLES.map((style) => (
+                                        <TouchableOpacity 
+                                            key={style.id}
+                                            style={[
+                                                styles.previewBox, 
+                                                selectedMarkdownStyle === style.id && {backgroundColor: '#333', borderColor: '#fff'}
+                                            ]}
+                                            onPress={() => { setSelectedMarkdownStyle(style.id); saveSettings({ selectedMarkdownStyle: style.id }); }}
+                                        >
+                                            <Text style={[
+                                                styles.previewText, 
+                                                selectedMarkdownStyle === style.id && {color: '#fff'}
+                                            ]}>{style.preview}</Text>
+                                        </TouchableOpacity>
+                                    ))}
+                                </View>
 
-                <View style={{height: 50}} />
-            </ScrollView>
-        )}
+                                {/* Size Slider */}
+                                <View style={styles.sliderRow}>
+                                    <Text style={styles.sliderLabel}>{markdownSize}%</Text>
+                                    <CustomSlider
+                                        minimumValue={80}
+                                        maximumValue={150}
+                                        step={5}
+                                        value={markdownSize}
+                                        onValueChange={(val) => { setMarkdownSize(val); saveSettings({ markdownSize: val }); }}
+                                        activeColor="#fff"
+                                    />
+                                    <Text style={styles.sliderTitle}>حجم الخط العريض</Text>
+                                </View>
 
-      </View>
-    </TouchableOpacity>
+                                {/* Hide Marks Toggle */}
+                                <View style={styles.toggleRow}>
+                                    <Switch 
+                                        value={hideMarkdownMarks} 
+                                        onValueChange={(val) => { setHideMarkdownMarks(val); saveSettings({ hideMarkdownMarks: val }); }}
+                                        trackColor={{ false: "#333", true: "#fff" }}
+                                        thumbColor={"#fff"}
+                                    />
+                                    <Text style={styles.toggleLabel}>إخفاء علامات التنسيق (مثل **)</Text>
+                                </View>
+                            </>
+                        )}
+                    </View>
+
+                    <View style={{height: 50}} />
+                </ScrollView>
+            )}
+        </View>
+    </View>
   </Modal>
 </View>
 );
@@ -1378,7 +1414,8 @@ nextButton: { backgroundColor: '#fff' },
 prevText: { color: '#fff', fontWeight: 'bold', fontSize: 16 },
 nextText: { color: '#000', fontWeight: 'bold', fontSize: 16 },
 modalOverlay: { flex: 1, backgroundColor: 'rgba(0,0,0,0.6)', justifyContent: 'flex-end', alignItems: 'center' },
-settingsSheet: { backgroundColor: '#000', borderTopLeftRadius: 25, borderTopRightRadius: 25, paddingHorizontal: 20, paddingBottom: 40, alignSelf: 'stretch', minHeight: 500, maxHeight: '90%' },
+modalBackdrop: { ...StyleSheet.absoluteFillObject },
+settingsSheet: { backgroundColor: '#000', borderTopLeftRadius: 25, borderTopRightRadius: 25, paddingHorizontal: 20, width: '100%', minHeight: 500, maxHeight: '90%' },
 settingsHandle: { width: 40, height: 5, backgroundColor: '#333', borderRadius: 3, alignSelf: 'center', marginVertical: 12 },
 settingsHeader: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 20 },
 settingsTitle: { color: '#fff', fontSize: 20, fontWeight: 'bold' },
