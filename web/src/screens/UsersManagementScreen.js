@@ -9,7 +9,8 @@ import {
   ActivityIndicator,
   Alert,
   StatusBar,
-  ImageBackground
+  ImageBackground,
+  Modal
 } from 'react-native';
 import { Image } from 'expo-image';
 import { Ionicons } from '@expo/vector-icons';
@@ -17,6 +18,7 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 import { LinearGradient } from 'expo-linear-gradient';
 import api from '../services/api';
 import { useToast } from '../context/ToastContext';
+import CustomAlert from '../components/CustomAlert';
 
 const formatDate = (dateString) => {
     if (!dateString) return '---';
@@ -36,6 +38,14 @@ export default function UsersManagementScreen({ navigation }) {
   const [users, setUsers] = useState([]);
   const [loading, setLoading] = useState(true);
 
+  // Custom Alert State
+  const [alertVisible, setAlertVisible] = useState(false);
+  const [alertConfig, setAlertConfig] = useState({});
+
+  // Role Selection Modal State
+  const [roleModalVisible, setRoleModalVisible] = useState(false);
+  const [selectedUserForRole, setSelectedUserForRole] = useState(null);
+
   useEffect(() => {
     fetchUsers();
   }, []);
@@ -53,12 +63,16 @@ export default function UsersManagementScreen({ navigation }) {
   };
 
   const handlePromote = (user) => {
-      Alert.alert("تغيير الرتبة", `اختر الرتبة الجديدة لـ ${user.name}`, [
-          { text: "إلغاء", style: "cancel" },
-          { text: "مستخدم", onPress: () => updateUserRole(user._id, 'user') },
-          { text: "مترجم/مساهم", onPress: () => updateUserRole(user._id, 'contributor') },
-          { text: "مشرف (Admin)", onPress: () => updateUserRole(user._id, 'admin'), style: 'destructive' },
-      ]);
+      setSelectedUserForRole(user);
+      setRoleModalVisible(true);
+  };
+
+  const confirmRoleChange = (newRole) => {
+      if (selectedUserForRole) {
+          updateUserRole(selectedUserForRole._id, newRole);
+          setRoleModalVisible(false);
+          setSelectedUserForRole(null);
+      }
   };
 
   const updateUserRole = async (userId, newRole) => {
@@ -70,11 +84,18 @@ export default function UsersManagementScreen({ navigation }) {
   };
 
   const handleDelete = (user) => {
-      Alert.alert("خيارات الحذف", `ماذا تريد أن تفعل ببيانات المستخدم ${user.name}؟`, [
-          { text: "إلغاء", style: "cancel" },
-          { text: "حذف المستخدم فقط", onPress: () => performDelete(user._id, false) },
-          { text: "حذف المستخدم وأعماله", onPress: () => performDelete(user._id, true), style: 'destructive' }
-      ]);
+      setAlertConfig({
+          title: "حذف المستخدم",
+          message: `هل أنت متأكد من حذف ${user.name}؟ هذا الإجراء سيحذف المستخدم وجميع أعماله نهائياً.`,
+          type: 'danger',
+          confirmText: "حذف نهائي",
+          cancelText: "إلغاء",
+          onConfirm: () => {
+              setAlertVisible(false);
+              performDelete(user._id, true); // Defaulting to delete content as well for cleaner DB
+          }
+      });
+      setAlertVisible(true);
   };
 
   const performDelete = async (userId, deleteContent) => {
@@ -130,6 +151,54 @@ export default function UsersManagementScreen({ navigation }) {
   return (
     <View style={styles.container}>
       <StatusBar barStyle="light-content" />
+      
+      {/* Custom Alert Component */}
+      <CustomAlert 
+        visible={alertVisible}
+        title={alertConfig.title}
+        message={alertConfig.message}
+        type={alertConfig.type}
+        confirmText={alertConfig.confirmText}
+        cancelText={alertConfig.cancelText}
+        onCancel={() => setAlertVisible(false)}
+        onConfirm={alertConfig.onConfirm}
+      />
+
+      {/* Role Selection Modal (Glass Design) */}
+      <Modal visible={roleModalVisible} transparent animationType="fade" onRequestClose={() => setRoleModalVisible(false)}>
+          <TouchableOpacity 
+            style={styles.modalOverlay} 
+            activeOpacity={1} 
+            onPress={() => setRoleModalVisible(false)}
+          >
+              <View style={styles.roleModalContent}>
+                  <LinearGradient colors={['rgba(30, 30, 30, 0.95)', 'rgba(10, 10, 10, 0.98)']} style={StyleSheet.absoluteFill} />
+                  
+                  <Text style={styles.modalTitle}>تغيير الرتبة</Text>
+                  <Text style={styles.modalSubtitle}>اختر الرتبة الجديدة للمستخدم {selectedUserForRole?.name}</Text>
+                  
+                  <TouchableOpacity style={styles.roleOption} onPress={() => confirmRoleChange('user')}>
+                      <Text style={styles.roleOptionText}>مستخدم (User)</Text>
+                      <Ionicons name="person-outline" size={20} color="#ccc" />
+                  </TouchableOpacity>
+
+                  <TouchableOpacity style={styles.roleOption} onPress={() => confirmRoleChange('contributor')}>
+                      <Text style={[styles.roleOptionText, {color: '#4a7cc7'}]}>مترجم / مساهم</Text>
+                      <Ionicons name="book-outline" size={20} color="#4a7cc7" />
+                  </TouchableOpacity>
+
+                  <TouchableOpacity style={[styles.roleOption, {borderBottomWidth: 0}]} onPress={() => confirmRoleChange('admin')}>
+                      <Text style={[styles.roleOptionText, {color: '#ff4444'}]}>مشرف عام (Admin)</Text>
+                      <Ionicons name="shield-checkmark-outline" size={20} color="#ff4444" />
+                  </TouchableOpacity>
+
+                  <TouchableOpacity style={styles.cancelButton} onPress={() => setRoleModalVisible(false)}>
+                      <Text style={styles.cancelButtonText}>إلغاء</Text>
+                  </TouchableOpacity>
+              </View>
+          </TouchableOpacity>
+      </Modal>
+
       <ImageBackground 
         source={require('../../assets/adaptive-icon.png')} 
         style={styles.bgImage}
@@ -195,5 +264,15 @@ const styles = StyleSheet.create({
   separator: { color: '#444', marginHorizontal: 6, fontSize: 12 },
   joinDate: { color: '#666', fontSize: 12 },
   actionsContainer: { flexDirection: 'row', alignItems: 'center', gap: 10 },
-  actionBtn: { padding: 8, backgroundColor: 'rgba(255,255,255,0.05)', borderRadius: 8 }
+  actionBtn: { padding: 8, backgroundColor: 'rgba(255,255,255,0.05)', borderRadius: 8 },
+
+  // Role Modal Styles
+  modalOverlay: { flex: 1, backgroundColor: 'rgba(0,0,0,0.8)', justifyContent: 'center', alignItems: 'center', padding: 20 },
+  roleModalContent: { width: '100%', maxWidth: 320, borderRadius: 20, overflow: 'hidden', borderWidth: 1, borderColor: 'rgba(255,255,255,0.1)', padding: 20 },
+  modalTitle: { color: '#fff', fontSize: 18, fontWeight: 'bold', textAlign: 'center', marginBottom: 5 },
+  modalSubtitle: { color: '#888', fontSize: 12, textAlign: 'center', marginBottom: 20 },
+  roleOption: { flexDirection: 'row', justifyContent: 'flex-end', alignItems: 'center', paddingVertical: 15, borderBottomWidth: 1, borderBottomColor: 'rgba(255,255,255,0.1)', gap: 10 },
+  roleOptionText: { color: '#ccc', fontSize: 16, fontWeight: '600' },
+  cancelButton: { marginTop: 15, paddingVertical: 12, backgroundColor: 'rgba(255,255,255,0.1)', borderRadius: 10, alignItems: 'center' },
+  cancelButtonText: { color: '#fff', fontWeight: 'bold' }
 });
