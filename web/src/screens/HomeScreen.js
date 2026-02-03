@@ -1,5 +1,5 @@
 
-import React, { useState, useRef, useEffect, useCallback } from 'react';
+import React, { useState, useRef, useEffect, useCallback, useContext } from 'react';
 import {
   View,
   Text,
@@ -24,6 +24,7 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 import api from '../services/api';
 import { useApp } from '../context/AuthContext';
 import { useFocusEffect } from '@react-navigation/native';
+import { DrawerContext } from '../../App'; // Import Context
 
 const { width } = Dimensions.get('window');
 const isLargeScreen = width > 600;
@@ -208,6 +209,9 @@ const AutoScrollCarousel = ({ data, renderItem, itemWidth }) => {
 };
 
 export default function HomeScreen({ navigation }) {
+  // Access the Drawer Context
+  const { openDrawer } = useContext(DrawerContext);
+
   const [refreshing, setRefreshing] = useState(false);
   const [loading, setLoading] = useState(true);
   const [lastReadItem, setLastReadItem] = useState(null);
@@ -483,18 +487,25 @@ export default function HomeScreen({ navigation }) {
              
              <Text style={styles.headerTitleSticky}>الرئيسية</Text>
              
-             <TouchableOpacity 
-                ref={notifButtonRef} // Attach ref for measurement
-                style={styles.iconBtn} 
-                onPress={toggleNotifications}
-             >
-                <Ionicons name={unreadCount > 0 ? "notifications" : "notifications-outline"} size={24} color="#fff" />
-                {unreadCount > 0 && (
-                    <View style={styles.badge}>
-                        <Text style={styles.badgeText}>{unreadCount > 99 ? '99+' : unreadCount}</Text>
-                    </View>
-                )}
-             </TouchableOpacity>
+             <View style={styles.rightIcons}>
+                 <TouchableOpacity 
+                    ref={notifButtonRef} 
+                    style={styles.iconBtn} 
+                    onPress={toggleNotifications}
+                 >
+                    <Ionicons name={unreadCount > 0 ? "notifications" : "notifications-outline"} size={24} color="#fff" />
+                    {unreadCount > 0 && (
+                        <View style={styles.badge}>
+                            <Text style={styles.badgeText}>{unreadCount > 99 ? '99+' : unreadCount}</Text>
+                        </View>
+                    )}
+                 </TouchableOpacity>
+
+                 {/* زر القائمة الجديد - يفتح الدرج الجانبي */}
+                 <TouchableOpacity style={styles.iconBtn} onPress={openDrawer}>
+                    <Ionicons name="menu" size={28} color="#fff" />
+                 </TouchableOpacity>
+             </View>
           </View>
         </SafeAreaView>
       </Animated.View>
@@ -584,11 +595,12 @@ const styles = StyleSheet.create({
   headerContent: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', paddingHorizontal: 20, paddingVertical: 15, paddingTop: 40 },
   headerTitleSticky: { color: '#fff', fontSize: 18, fontWeight: 'bold' },
   iconBtn: { position: 'relative', padding: 5 },
+  rightIcons: { flexDirection: 'row', gap: 15 }, // لتجميع الأزرار يمين
   badge: { position: 'absolute', bottom: -2, right: -2, backgroundColor: '#ff4444', borderRadius: 10, minWidth: 16, height: 16, justifyContent: 'center', alignItems: 'center', paddingHorizontal: 2, borderWidth: 1.5, borderColor: '#000' },
   badgeText: { color: '#fff', fontSize: 9, fontWeight: 'bold' },
   dropdownOverlay: { position: 'absolute', top: 0, left: 0, right: 0, bottom: 0, zIndex: 2000 },
   dropdownContainer: { position: 'absolute', right: 20, width: 300, backgroundColor: '#161616', borderRadius: 12, borderWidth: 1, borderColor: '#333', shadowColor: "#000", shadowOffset: { width: 0, height: 5 }, shadowOpacity: 0.5, shadowRadius: 10, elevation: 20, transformOrigin: 'top right' },
-  dropdownArrow: { position: 'absolute', top: -10, right: 15, width: 0, height: 0, borderLeftWidth: 10, borderRightWidth: 10, borderBottomWidth: 10, borderStyle: 'solid', backgroundColor: 'transparent', borderLeftColor: 'transparent', borderRightColor: 'transparent', borderBottomColor: '#333' },
+  dropdownArrow: { position: 'absolute', top: -10, right: 55, width: 0, height: 0, borderLeftWidth: 10, borderRightWidth: 10, borderBottomWidth: 10, borderStyle: 'solid', backgroundColor: 'transparent', borderLeftColor: 'transparent', borderRightColor: 'transparent', borderBottomColor: '#333' },
   dropdownHeader: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', padding: 12, borderBottomWidth: 1, borderBottomColor: '#2a2a2a' },
   dropdownTitle: { color: '#fff', fontWeight: 'bold', fontSize: 14 },
   dropdownCountBadge: { backgroundColor: '#ff4444', paddingHorizontal: 6, paddingVertical: 2, borderRadius: 4 },
