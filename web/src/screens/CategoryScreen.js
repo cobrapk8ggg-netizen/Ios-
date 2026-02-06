@@ -1,134 +1,232 @@
-import React, { useState, useEffect } from 'react';
+
+import React, { useState, useEffect, useCallback } from 'react';
 import {
   View,
   Text,
   StyleSheet,
   FlatList,
   TouchableOpacity,
-  Image,
   Dimensions,
-  ActivityIndicator
+  ActivityIndicator,
+  TextInput,
+  ImageBackground
 } from 'react-native';
-import { LinearGradient } from 'expo-linear-gradient';
+import { Image } from 'expo-image';
 import { Ionicons } from '@expo/vector-icons';
 import { SafeAreaView } from 'react-native-safe-area-context';
+import { LinearGradient } from 'expo-linear-gradient';
 import api from '../services/api';
 
 const { width } = Dimensions.get('window');
+const numColumns = width > 600 ? 4 : 2;
+
+// Helper for source name (Added to card)
+const getSourceName = (url) => {
+    if (!url) return null;
+    if (url.includes('rewayat.club')) return 'نادي الروايات';
+    if (url.includes('ar-no.com') || url.includes('ar-novel')) return 'Ar-Novel';
+    if (url.includes('novelfire')) return 'Novel Fire';
+    if (url.includes('freewebnovel')) return 'Free WebNovel';
+    if (url.includes('wuxiabox')) return 'WuxiaBox';
+    return 'مصدر خارجي';
+};
 
 export default function CategoryScreen({ route, navigation }) {
-  // Now supports 'category' (string) passed for fetching
-  const { title, novels, category } = route.params;
+  const { title, filter, category } = route.params; // filter: 'trending', 'latest_updates' etc.
   
-  const [data, setData] = useState(novels || []);
-  const [loading, setLoading] = useState(!novels);
-  const displayTitle = title || category;
+  const [novels, setNovels] = useState([]);
+  const [loading, setLoading] = useState(true);
+  const [page, setPage] = useState(1);
+  const [hasMore, setHasMore] = useState(true);
+  const [loadingMore, setLoadingMore] = useState(false);
+  const [searchQuery, setSearchQuery] = useState('');
+  
+  // Use display title or fallback to category name
+  const displayTitle = title || category || 'القائمة';
 
   useEffect(() => {
-    if (!novels && category) {
-        fetchCategoryNovels();
-    }
-  }, [category]);
+      fetchNovels(true);
+  }, [searchQuery]);
 
-  const fetchCategoryNovels = async () => {
+  const fetchNovels = async (reset = false) => {
+      if (reset) {
+          setLoading(true);
+          setPage(1);
+      } else {
+          if (!hasMore || loadingMore) return;
+          setLoadingMore(true);
+      }
+
       try {
-          const res = await api.get(`/api/novels?category=${encodeURIComponent(category)}`);
-          // Fix: Access .novels array from response
-          setData(res.data.novels || res.data || []);
+          const currentPage = reset ? 1 : page;
+          const params = {
+              page: currentPage,
+              limit: 20,
+              search: searchQuery
+          };
+
+          // Apply specific filters
+          if (category) params.category = category;
+          if (filter) {
+              params.filter = filter;
+              // Add time range if trending
+              if (filter === 'trending') params.timeRange = 'week';
+          }
+
+          const res = await api.get('/api/novels', { params });
+          
+          let newNovels = [];
+          if (Array.isArray(res.data)) {
+              newNovels = res.data; // Fallback for simple endpoints
+          } else {
+              newNovels = res.data.novels || [];
+          }
+
+          if (reset) {
+              setNovels(newNovels);
+          } else {
+              setNovels(prev => [...prev, ...newNovels]);
+          }
+
+          setHasMore(newNovels.length === 20); // Assuming limit is 20
+          if (!reset) setPage(p => p + 1);
+          else setPage(2);
+
       } catch (e) {
-          console.error(e);
+          console.error("Fetch Category Error:", e);
       } finally {
           setLoading(false);
+          setLoadingMore(false);
       }
   };
 
-  const renderNovelItem = ({ item }) => (
-    <TouchableOpacity
-      style={styles.novelItem}
-      onPress={() => navigation.navigate('NovelDetail', { novel: item })}
-    >
-      <Image source={{ uri: item.cover }} style={styles.novelImage} />
-      
-      <View style={styles.novelDetails}>
-        <Text style={styles.novelTitle} numberOfLines={2}>
-          {item.title}
-        </Text>
-        <Text style={styles.novelAuthor} numberOfLines={1}>
-          {item.author}
-        </Text>
-        
-        <View style={styles.metaRow}>
-          <View style={styles.metaItem}>
-            <Ionicons name="star" size={14} color="#ffa500" />
-            <Text style={styles.metaText}>{item.rating}</Text>
-          </View>
-          
-          <View style={styles.metaItem}>
-            <Ionicons name="book-outline" size={14} color="#666" />
-            <Text style={styles.metaText}>{item.chaptersCount || item.chapters} فصل</Text>
-          </View>
-          
-          <View style={styles.metaItem}>
-            <Ionicons name="eye-outline" size={14} color="#666" />
-            <Text style={styles.metaText}>{item.views}</Text>
-          </View>
-        </View>
+  const getStatusColor = (status) => {
+    switch (status) {
+      case 'مكتملة': return '#064e3b';
+      case 'متوقفة': return '#7f1d1d';
+      default: return '#1e3a8a';
+    }
+  };
 
-        <View style={styles.tags}>
-          <View style={styles.categoryTag}>
-            <Text style={styles.categoryTagText}>{item.category || category}</Text>
-          </View>
-          {item.status && (
-            <View style={[styles.statusTag, item.status === 'متوقفة' ? {borderColor: '#ff4444', backgroundColor: 'rgba(255,68,68,0.2)'} : {}]}>
-              <Ionicons name={item.status === 'مكتملة' ? "checkmark-circle" : "ellipse"} size={12} color={item.status === 'متوقفة' ? '#ff4444' : '#4ade80'} />
-              <Text style={[styles.statusTagText, item.status === 'متوقفة' ? {color: '#ff4444'} : {}]}>{item.status}</Text>
+  const renderNovelItem = ({ item }) => {
+    const sourceName = getSourceName(item.sourceUrl);
+    
+    return (
+      <TouchableOpacity
+        style={styles.novelCard}
+        onPress={() => navigation.navigate('NovelDetail', { novel: item })}
+        activeOpacity={0.8}
+      >
+        <View style={styles.imageContainer}>
+            <Image 
+              source={item.cover} 
+              style={styles.novelImage}
+              contentFit="cover"
+              transition={300}
+              cachePolicy="memory-disk"
+            />
+            <View style={[styles.statusBadge, { backgroundColor: getStatusColor(item.status) }]}>
+                <Text style={styles.statusText}>{item.status || 'مستمرة'}</Text>
             </View>
-          )}
         </View>
-      </View>
-    </TouchableOpacity>
-  );
-
-  return (
-    <SafeAreaView style={styles.container} edges={['top']}>
-      <View style={styles.header}>
-        <TouchableOpacity
-          style={styles.backButton}
-          onPress={() => navigation.goBack()}
-        >
-          <Ionicons name="arrow-forward" size={24} color="#fff" />
-        </TouchableOpacity>
-        <Text style={styles.headerTitle}>{displayTitle}</Text>
-        <View style={{ width: 24 }} />
-      </View>
-
-      {loading ? (
-          <View style={{flex: 1, justifyContent: 'center', alignItems: 'center'}}>
-              <ActivityIndicator size="large" color="#4a7cc7" />
-          </View>
-      ) : (
-        <FlatList
-            data={data}
-            renderItem={renderNovelItem}
-            keyExtractor={item => item._id || item.id}
-            showsVerticalScrollIndicator={false}
-            contentContainerStyle={styles.listContent}
-            ListEmptyComponent={() => (
-                <View style={{alignItems: 'center', marginTop: 50}}>
-                    <Text style={{color: '#666'}}>لا توجد روايات في هذا التصنيف</Text>
+        
+        <View style={styles.cardInfo}>
+            <Text style={styles.novelTitle} numberOfLines={2}>{item.title}</Text>
+            
+            {sourceName && (
+                <View style={styles.sourceBadge}>
+                    <Text style={styles.sourceText}>{sourceName}</Text>
                 </View>
             )}
-        />
-      )}
-    </SafeAreaView>
+
+            <View style={styles.novelStats}>
+                <View style={styles.statBadge}>
+                    <Ionicons name="book-outline" size={12} color="#ccc" />
+                    <Text style={styles.statText}>{item.chaptersCount || 0} فصل</Text>
+                </View>
+                <View style={styles.statBadge}>
+                    <Ionicons name="eye-outline" size={12} color="#ccc" />
+                    <Text style={styles.statText}>{item.views || 0}</Text>
+                </View>
+            </View>
+        </View>
+      </TouchableOpacity>
+    );
+  };
+
+  return (
+    <View style={styles.container}>
+      <ImageBackground 
+        source={require('../../assets/adaptive-icon.png')} 
+        style={styles.bgImage}
+        blurRadius={20}
+      >
+          <LinearGradient colors={['rgba(0,0,0,0.6)', '#000000']} style={StyleSheet.absoluteFill} />
+      </ImageBackground>
+
+      <SafeAreaView style={{flex: 1}} edges={['top']}>
+        {/* Header */}
+        <View style={styles.header}>
+            <TouchableOpacity onPress={() => navigation.goBack()} style={styles.backButton}>
+                <Ionicons name="arrow-forward" size={24} color="#fff" />
+            </TouchableOpacity>
+            <Text style={styles.headerTitle}>{displayTitle}</Text>
+            <View style={{width: 40}} /> 
+        </View>
+
+        {/* Search Bar */}
+        <View style={styles.searchBarContainer}>
+            <Ionicons name="search" size={20} color="#666" style={{marginLeft: 10}} />
+            <TextInput
+                style={styles.searchInput}
+                placeholder="ابحث في هذه القائمة..."
+                placeholderTextColor="#666"
+                value={searchQuery}
+                onChangeText={setSearchQuery}
+            />
+            {searchQuery.length > 0 && (
+                <TouchableOpacity onPress={() => setSearchQuery('')}>
+                    <Ionicons name="close-circle" size={18} color="#666" />
+                </TouchableOpacity>
+            )}
+        </View>
+
+        {loading ? (
+            <View style={styles.loadingContainer}>
+                <ActivityIndicator size="large" color="#4a7cc7" />
+            </View>
+        ) : (
+            <FlatList
+                data={novels}
+                renderItem={renderNovelItem}
+                keyExtractor={item => item._id}
+                numColumns={numColumns}
+                key={numColumns}
+                showsVerticalScrollIndicator={false}
+                contentContainerStyle={styles.listContent}
+                columnWrapperStyle={[styles.columnWrapper, { flexDirection: 'row-reverse' }]}
+                onEndReached={() => fetchNovels(false)}
+                onEndReachedThreshold={0.5}
+                ListFooterComponent={
+                    loadingMore ? <ActivityIndicator color="#fff" style={{marginVertical: 20}} /> : <View style={{height: 20}} />
+                }
+                ListEmptyComponent={() => (
+                    <View style={styles.emptyContainer}>
+                        <Ionicons name="library-outline" size={50} color="#666" />
+                        <Text style={styles.emptyText}>لا توجد نتائج</Text>
+                    </View>
+                )}
+            />
+        )}
+      </SafeAreaView>
+    </View>
   );
 }
 
 const styles = StyleSheet.create({
-  container: {
-    flex: 1,
-    backgroundColor: '#0a0a0a',
-  },
+  container: { flex: 1, backgroundColor: '#000' },
+  bgImage: { ...StyleSheet.absoluteFillObject },
+  
   header: {
     flexDirection: 'row',
     alignItems: 'center',
@@ -136,13 +234,13 @@ const styles = StyleSheet.create({
     paddingHorizontal: 20,
     paddingVertical: 15,
     borderBottomWidth: 1,
-    borderBottomColor: '#1a1a1a',
+    borderBottomColor: 'rgba(255,255,255,0.1)',
   },
   backButton: {
     width: 40,
     height: 40,
     borderRadius: 20,
-    backgroundColor: '#1a1a1a',
+    backgroundColor: 'rgba(255,255,255,0.1)',
     alignItems: 'center',
     justifyContent: 'center',
   },
@@ -151,86 +249,109 @@ const styles = StyleSheet.create({
     fontWeight: 'bold',
     color: '#fff',
   },
-  listContent: {
-    padding: 20,
-  },
-  novelItem: {
-    flexDirection: 'row',
-    backgroundColor: '#1a1a1a',
-    borderRadius: 18,
-    marginBottom: 15,
-    overflow: 'hidden',
+
+  searchBarContainer: {
+    flexDirection: 'row-reverse', 
+    alignItems: 'center',
+    backgroundColor: 'rgba(30,30,30,0.6)',
+    marginHorizontal: 15,
+    borderRadius: 16,
+    paddingHorizontal: 12,
+    height: 50,
     borderWidth: 1,
-    borderColor: '#2a2a2a',
+    borderColor: 'rgba(255,255,255,0.1)',
+    marginTop: 10,
+    marginBottom: 5,
+  },
+  searchInput: {
+    flex: 1,
+    color: '#fff',
+    textAlign: 'right',
+    fontSize: 14,
+    marginRight: 10,
+  },
+
+  listContent: {
+    padding: 10,
+    paddingBottom: 40,
+  },
+  columnWrapper: {
+      justifyContent: 'flex-start', 
+      gap: 10,
+  },
+  
+  // Novel Card (Library Style)
+  novelCard: {
+      flex: 1,
+      backgroundColor: 'rgba(20, 20, 20, 0.75)',
+      borderRadius: 16,
+      marginBottom: 10,
+      overflow: 'hidden',
+      borderWidth: 1,
+      borderColor: 'rgba(255,255,255,0.1)',
+      maxWidth: '48%', 
+  },
+  imageContainer: {
+      height: 200,
+      width: '100%',
+      position: 'relative',
   },
   novelImage: {
-    width: 120,
-    height: 160,
-    backgroundColor: '#2a2a2a',
+      width: '100%',
+      height: '100%',
   },
-  novelDetails: {
-    flex: 1,
-    padding: 15,
+  statusBadge: {
+      position: 'absolute',
+      top: 8,
+      right: 8,
+      paddingHorizontal: 8,
+      paddingVertical: 4,
+      borderRadius: 6,
+  },
+  statusText: {
+      color: '#fff',
+      fontSize: 10,
+      fontWeight: 'bold',
+  },
+  cardInfo: {
+      padding: 10,
   },
   novelTitle: {
-    fontSize: 17,
-    fontWeight: 'bold',
-    color: '#fff',
-    marginBottom: 6,
-    textAlign: 'right',
+      color: '#fff',
+      fontSize: 13,
+      fontWeight: 'bold',
+      textAlign: 'right',
+      marginBottom: 6,
+      height: 36,
   },
-  novelAuthor: {
-    fontSize: 14,
-    color: '#888',
-    marginBottom: 12,
-    textAlign: 'right',
+  sourceBadge: {
+      backgroundColor: 'rgba(255,255,255,0.1)',
+      alignSelf: 'flex-end',
+      paddingHorizontal: 6,
+      paddingVertical: 2,
+      borderRadius: 4,
+      marginBottom: 6
   },
-  metaRow: {
-    flexDirection: 'row',
-    marginBottom: 12,
-    gap: 15,
+  sourceText: {
+      color: '#ccc',
+      fontSize: 9,
   },
-  metaItem: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 4,
+  novelStats: {
+      flexDirection: 'row-reverse',
+      justifyContent: 'space-between',
+      alignItems: 'center',
   },
-  metaText: {
-    fontSize: 13,
-    color: '#666',
+  statBadge: {
+      flexDirection: 'row-reverse',
+      alignItems: 'center',
+      gap: 4,
   },
-  tags: {
-    flexDirection: 'row',
-    gap: 8,
-    flexWrap: 'wrap'
+  statText: {
+      color: '#ccc',
+      fontSize: 10,
   },
-  categoryTag: {
-    backgroundColor: 'rgba(74, 124, 199, 0.2)',
-    paddingHorizontal: 10,
-    paddingVertical: 5,
-    borderRadius: 10,
-    borderWidth: 1,
-    borderColor: '#4a7cc7',
-  },
-  categoryTagText: {
-    fontSize: 12,
-    color: '#4a7cc7',
-    fontWeight: '600',
-  },
-  statusTag: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    backgroundColor: 'rgba(74, 222, 128, 0.2)',
-    paddingHorizontal: 8,
-    paddingVertical: 5,
-    borderRadius: 10,
-    gap: 4,
-    borderWidth: 1,
-    borderColor: '#4ade80',
-  },
-  statusTagText: {
-    fontSize: 11,
-    color: '#4ade80',
-    fontWeight: '600',
-  },
+
+  loadingContainer: { flex: 1, justifyContent: 'center', alignItems: 'center' },
+  emptyContainer: { alignItems: 'center', justifyContent: 'center', marginTop: 50 },
+  emptyText: { color: '#666', marginTop: 10 },
 });
