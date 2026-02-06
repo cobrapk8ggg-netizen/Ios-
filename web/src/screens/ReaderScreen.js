@@ -106,6 +106,8 @@ const ADVANCED_COLORS = [
     { color: '#ef4444', name: 'red' },
     { color: '#3b82f6', name: 'blue' },
     { color: '#4ade80', name: 'green' },
+    { color: '#888888', name: 'gray' },
+    { color: '#000000', name: 'black' },
 ];
 
 // Quote Styles Configuration
@@ -170,6 +172,23 @@ const [newCleanerWord, setNewCleanerWord] = useState('');
 const [cleanerEditingId, setCleanerEditingId] = useState(null); 
 const [cleaningLoading, setCleaningLoading] = useState(false);
 
+// --- COPYRIGHTS STATE ---
+const [copyrightStartText, setCopyrightStartText] = useState('');
+const [copyrightEndText, setCopyrightEndText] = useState('');
+const [copyrightLoading, setCopyrightLoading] = useState(false);
+// New Styling State
+const [copyrightStyle, setCopyrightStyle] = useState({
+    color: '#888888',
+    opacity: 1,
+    alignment: 'center',
+    isBold: true,
+    fontSize: 14 // Default Font Size
+});
+const [hexColorInput, setHexColorInput] = useState('#888888');
+// Frequency State
+const [copyrightFrequency, setCopyrightFrequency] = useState('always'); // 'always', 'random', 'every_x'
+const [copyrightEveryX, setCopyrightEveryX] = useState('5');
+
 // Drawer State
 const [drawerMode, setDrawerMode] = useState('none'); 
 const slideAnim = useRef(new Animated.Value(-DRAWER_WIDTH)).current; 
@@ -191,7 +210,10 @@ useEffect(() => {
     loadSettings();
     loadFoldersAndPrefs(); 
     fetchAuthorData();
-    if (isAdmin) fetchCleanerWords();
+    if (isAdmin) {
+        fetchCleanerWords();
+        fetchCopyrights();
+    }
 }, []);
 
 const fetchAuthorData = async () => {
@@ -213,6 +235,42 @@ const fetchCleanerWords = async () => {
         setCleanerWords(res.data);
     } catch (e) {
         console.log("Failed to fetch cleaner words");
+    }
+};
+
+const fetchCopyrights = async () => {
+    try {
+        const res = await api.get('/api/admin/copyright');
+        setCopyrightStartText(res.data.startText || '');
+        setCopyrightEndText(res.data.endText || '');
+        if (res.data.styles) {
+            setCopyrightStyle(prev => ({...prev, ...res.data.styles}));
+            setHexColorInput(res.data.styles.color || '#888888');
+        }
+        if (res.data.frequency) setCopyrightFrequency(res.data.frequency);
+        if (res.data.everyX) setCopyrightEveryX(res.data.everyX.toString());
+    } catch (e) {
+        console.log("Failed to fetch copyrights");
+    }
+};
+
+const handleSaveCopyrights = async () => {
+    setCopyrightLoading(true);
+    try {
+        await api.post('/api/admin/copyright', {
+            startText: copyrightStartText,
+            endText: copyrightEndText,
+            styles: copyrightStyle,
+            frequency: copyrightFrequency,
+            everyX: parseInt(copyrightEveryX) || 5
+        });
+        showToast("تم حفظ الحقوق والإعدادات بنجاح", "success");
+        // Reload chapter to see changes
+        fetchChapter();
+    } catch (e) {
+        showToast("فشل الحفظ", "error");
+    } finally {
+        setCopyrightLoading(false);
     }
 };
 
@@ -434,7 +492,7 @@ const handleExecuteCleaner = async () => {
             { text: "إلغاء", style: "cancel" },
             { 
                 text: "تنفيذ الحذف", 
-                style: "destructive",
+                style: "destructive", 
                 onPress: async () => {
                     setCleaningLoading(true);
                     try {
@@ -561,6 +619,24 @@ const toggleMenu = useCallback(() => {
   });
 }, [drawerMode]);
 
+// 🔥🔥 FIX FOR WEB CLICK EVENT 🔥🔥
+useEffect(() => {
+    if (Platform.OS === 'web') {
+        const handleWebMessage = (event) => {
+            // Check for toggleMenu message from iframe
+            if (typeof event.data === 'string') {
+                 if (event.data === 'toggleMenu') toggleMenu();
+                 if (event.data === 'openComments') setShowComments(true);
+                 if (event.data === 'openProfile') {
+                     if (authorProfile) navigation.push('UserProfile', { userId: authorProfile._id });
+                 }
+            }
+        };
+        window.addEventListener('message', handleWebMessage);
+        return () => window.removeEventListener('message', handleWebMessage);
+    }
+}, [toggleMenu, authorProfile]);
+
 const openLeftDrawer = () => {
     setDrawerMode('chapters');
     Animated.parallel([
@@ -654,6 +730,56 @@ const androidTextLines = useMemo(() => {
 
 const generateHTML = () => {
 if (!chapter) return '';
+
+// 🔥🔥🔥 SEPARATED COPYRIGHT RENDERING LOGIC 🔥🔥🔥
+const startCopy = chapter.copyrightStart;
+const endCopy = chapter.copyrightEnd;
+const style = chapter.copyrightStyles || {};
+
+// Fixed CSS for copyright (Independent of user settings)
+// Note: We use fixed px sizes or 'medium' etc to avoid scaling with content-area
+const copyrightCSS = `
+    color: ${style.color || '#888'};
+    opacity: ${style.opacity || 1};
+    text-align: ${style.alignment || 'center'};
+    font-weight: ${style.isBold ? 'bold' : 'normal'};
+    font-size: ${style.fontSize || 14}px; 
+    line-height: 1.5;
+    padding: 15px 0;
+    margin: 10px 0;
+    font-family: sans-serif; /* Keep it simple */
+`;
+
+// 🔥🔥🔥 THE INTERNAL DIVIDER (APP STYLE) 🔥🔥🔥
+// Instead of a border-bottom, we define a class that mimics the line
+// Used for both copyrights and internal chapter separators
+const dividerCSS = `
+    .chapter-divider {
+        border: none;
+        height: 1px;
+        background-color: rgba(128,128,128,0.3);
+        margin: 10px 0 30px 0;
+        width: 100%;
+    }
+`;
+
+const dividerHTML = `<div class="chapter-divider"></div>`;
+
+const startHTML = startCopy ? `
+    <!-- START: COPYRIGHTS -->
+    <div class="app-copyright start" style="${copyrightCSS}">
+        ${startCopy}
+    </div>
+    ${dividerHTML}
+` : '';
+
+const endHTML = endCopy ? `
+    ${dividerHTML}
+    <!-- END: COPYRIGHTS -->
+    <div class="app-copyright end" style="${copyrightCSS}">
+        ${endCopy}
+    </div>
+` : '';
 
 const formattedContent = getProcessedContent
     .split('\n')
@@ -758,11 +884,19 @@ return `
         overflow-x: hidden;
       }
       .container { padding: 25px 20px 120px 20px; width: 100%; max-width: 800px; margin: 0 auto; }
+      
+      /* --- APP UI TITLE --- */
       .title { 
-        font-size: ${fontSize + 8}px; font-weight: bold; margin-bottom: 40px; 
-        color: ${bgColor === '#fff' ? '#000' : '#fff'}; border-bottom: 1px solid rgba(128,128,128,0.3);
-        padding-bottom: 15px; font-family: ${fontFamily.family};
+        font-size: ${fontSize + 8}px; font-weight: bold; margin-bottom: 20px; 
+        color: ${bgColor === '#fff' ? '#000' : '#fff'}; 
+        /* Removed border-bottom from title to use separate divider */
+        padding-bottom: 10px; font-family: ${fontFamily.family};
+        text-align: right; /* 🔥 CHANGED ALIGNMENT AS REQUESTED */
       }
+
+      /* 🔥 THE GLOBAL DIVIDER CLASS 🔥 */
+      ${dividerCSS}
+
       .content-area { font-size: ${fontSize}px; text-align: justify; word-wrap: break-word; }
       p { margin-bottom: 1.5em; }
       
@@ -801,8 +935,17 @@ return `
   </head>
   <body>
     <div class="container" id="clickable-area">
+      <!-- APP INTERFACE TITLE (العنوان في تصميم القارئ) -->
       <div class="title">${chapter.title}</div>
+      ${dividerHTML}
+      
+      ${startHTML}
+      
+      <!-- INTERNAL TEXT CONTENT (نص الفصل مع الخطوط) -->
       <div class="content-area">${formattedContent}</div>
+      
+      ${endHTML}
+
       ${publisherBanner}
       ${commentsButton}
     </div>
@@ -1052,7 +1195,7 @@ return (
               <FlatList ref={flatListRef} data={sortedChapters} keyExtractor={(item) => item._id || item.number.toString()} renderItem={renderChapterItem} initialNumToRender={20} contentContainerStyle={styles.drawerList} showsVerticalScrollIndicator={true} indicatorStyle="white" />
           </Animated.View>
 
-          {/* Right Drawer (Replacements OR Cleaner) */}
+          {/* Right Drawer (Replacements OR Cleaner OR Copyright) */}
           <Animated.View style={[styles.drawerContent, { right: 0, borderLeftWidth: 1, borderLeftColor: '#333', paddingTop: insets.top + 20, paddingBottom: insets.bottom + 20, transform: [{ translateX: slideAnimRight }] }]}>
               {drawerMode === 'replacements' && (
                   <>
@@ -1114,6 +1257,159 @@ return (
                       <FlatList data={cleanerWords} keyExtractor={(_, index) => index.toString()} renderItem={renderCleanerItem} contentContainerStyle={styles.drawerList} />
                   </>
               )}
+              {drawerMode === 'copyright' && (
+                  <>
+                      <View style={styles.drawerHeader}>
+                          <Text style={[styles.drawerTitle, {color: '#4a7cc7'}]}>حقوق التطبيق</Text>
+                          <TouchableOpacity onPress={closeDrawers}><Ionicons name="close" size={24} color="#888" /></TouchableOpacity>
+                      </View>
+                      {/* 🔥 FIXED: Use ScrollView inside the drawer content for settings 🔥 */}
+                      <ScrollView contentContainerStyle={{padding: 15, paddingBottom: 100}}>
+                          {/* Frequency Controls */}
+                          <View style={{marginBottom: 20}}>
+                              <Text style={styles.cardSectionTitle}>تكرار الظهور</Text>
+                              <View style={{flexDirection:'row-reverse', flexWrap:'wrap', gap: 10, marginBottom:10}}>
+                                  {['always', 'random', 'every_x'].map(freq => (
+                                      <TouchableOpacity 
+                                          key={freq}
+                                          style={[styles.freqBtn, copyrightFrequency === freq && styles.freqBtnActive]}
+                                          onPress={() => setCopyrightFrequency(freq)}
+                                      >
+                                          <Text style={[styles.freqBtnText, copyrightFrequency === freq && {color:'#fff'}]}>
+                                              {freq === 'always' ? 'دائماً' : freq === 'random' ? 'عشوائي' : 'كل عدد فصول'}
+                                          </Text>
+                                      </TouchableOpacity>
+                                  ))}
+                              </View>
+                              {copyrightFrequency === 'every_x' && (
+                                  <View style={{flexDirection:'row-reverse', alignItems:'center', gap:10}}>
+                                      <Text style={{color:'#ccc'}}>كل</Text>
+                                      <TextInput 
+                                          style={[styles.textInput, {width: 60, textAlign:'center'}]}
+                                          value={copyrightEveryX}
+                                          onChangeText={setCopyrightEveryX}
+                                          keyboardType='numeric'
+                                      />
+                                      <Text style={{color:'#ccc'}}>فصل</Text>
+                                  </View>
+                              )}
+                          </View>
+
+                          {/* Styling Controls */}
+                          <View style={{marginBottom: 20}}>
+                              <Text style={styles.cardSectionTitle}>اللون (Hex)</Text>
+                              <View style={{flexDirection: 'row', alignItems: 'center', gap: 10, marginBottom: 10}}>
+                                <View style={{width: 30, height: 30, backgroundColor: copyrightStyle.color, borderRadius: 15, borderWidth: 1, borderColor: '#fff'}} />
+                                <TextInput 
+                                    style={[styles.textInput, {flex: 1, textAlign: 'left'}]} 
+                                    placeholder="#RRGGBB" 
+                                    value={hexColorInput}
+                                    onChangeText={(text) => {
+                                        setHexColorInput(text);
+                                        if (/^#[0-9A-F]{6}$/i.test(text)) {
+                                            setCopyrightStyle(prev => ({...prev, color: text}));
+                                        }
+                                    }}
+                                />
+                              </View>
+                              
+                              <Text style={styles.cardSectionTitle}>اختر لوناً</Text>
+                              <View style={styles.colorPalette}>
+                                  {ADVANCED_COLORS.map((c) => (
+                                      <TouchableOpacity 
+                                          key={c.color} 
+                                          style={[styles.paletteCircle, {backgroundColor: c.color}, copyrightStyle.color === c.color && styles.paletteCircleActive]}
+                                          onPress={() => {
+                                               setCopyrightStyle(prev => ({...prev, color: c.color}));
+                                               setHexColorInput(c.color);
+                                          }}
+                                      />
+                                  ))}
+                              </View>
+
+                              {/* 🔥 Font Size Slider 🔥 */}
+                              <View style={styles.sliderRow}>
+                                  <Text style={styles.sliderLabel}>{copyrightStyle.fontSize}px</Text>
+                                  <CustomSlider
+                                      minimumValue={10}
+                                      maximumValue={30}
+                                      step={1}
+                                      value={copyrightStyle.fontSize}
+                                      onValueChange={(val) => setCopyrightStyle(prev => ({...prev, fontSize: val}))}
+                                      activeColor="#4a7cc7"
+                                  />
+                                  <Text style={styles.sliderTitle}>حجم الخط</Text>
+                              </View>
+
+                              <View style={styles.sliderRow}>
+                                  <Text style={styles.sliderLabel}>{(copyrightStyle.opacity * 100).toFixed(0)}%</Text>
+                                  <CustomSlider
+                                      minimumValue={0.1}
+                                      maximumValue={1}
+                                      step={0.1}
+                                      value={copyrightStyle.opacity}
+                                      onValueChange={(val) => setCopyrightStyle(prev => ({...prev, opacity: val}))}
+                                      activeColor="#4a7cc7"
+                                  />
+                                  <Text style={styles.sliderTitle}>الشفافية</Text>
+                              </View>
+
+                              <View style={{flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 15}}>
+                                  <View style={{flexDirection: 'row', gap: 10}}>
+                                      {['left', 'center', 'right'].map(align => (
+                                          <TouchableOpacity 
+                                            key={align} 
+                                            style={[styles.alignBtn, copyrightStyle.alignment === align && styles.alignBtnActive]}
+                                            onPress={() => setCopyrightStyle(prev => ({...prev, alignment: align}))}
+                                          >
+                                              <Ionicons name={`options-outline`} size={16} color={copyrightStyle.alignment === align ? '#fff' : '#666'} /> 
+                                              {/* Using generic icon as exact align icons vary in names */}
+                                          </TouchableOpacity>
+                                      ))}
+                                  </View>
+                                  <Text style={styles.sliderTitle}>المحاذاة</Text>
+                              </View>
+
+                              <View style={styles.toggleRow}>
+                                  <Switch 
+                                      value={copyrightStyle.isBold} 
+                                      onValueChange={(val) => setCopyrightStyle(prev => ({...prev, isBold: val}))}
+                                      trackColor={{ false: "#333", true: "#4a7cc7" }}
+                                      thumbColor={"#fff"}
+                                  />
+                                  <Text style={styles.toggleLabel}>خط عريض (Bold)</Text>
+                              </View>
+                          </View>
+
+                          <Text style={styles.listLabel}>سيظهر هذا النص في بداية كل فصل</Text>
+                          <TextInput 
+                              style={[styles.textInput, {height: 100, textAlignVertical: 'top', marginBottom: 20}]} 
+                              placeholder="مثال: حقوق النشر محفوظة لتطبيق زيوس..." 
+                              placeholderTextColor="#666" 
+                              value={copyrightStartText} 
+                              onChangeText={setCopyrightStartText} 
+                              multiline
+                          />
+
+                          <Text style={styles.listLabel}>سيظهر هذا النص في نهاية كل فصل</Text>
+                          <TextInput 
+                              style={[styles.textInput, {height: 100, textAlignVertical: 'top', marginBottom: 20}]} 
+                              placeholder="مثال: شكراً للقراءة على تطبيق زيوس..." 
+                              placeholderTextColor="#666" 
+                              value={copyrightEndText} 
+                              onChangeText={setCopyrightEndText} 
+                              multiline
+                          />
+
+                          <TouchableOpacity style={[styles.addButton, {backgroundColor: '#4a7cc7'}]} onPress={handleSaveCopyrights} disabled={copyrightLoading}>
+                             {copyrightLoading ? <ActivityIndicator color="#fff" /> : <Text style={styles.addButtonText}>حفظ الحقوق</Text>}
+                          </TouchableOpacity>
+                          <Text style={{color:'#666', fontSize:11, marginTop:10, textAlign:'center'}}>
+                              ملاحظة: هذا التغيير سيطبق فوراً على جميع فصول التطبيق.
+                          </Text>
+                      </ScrollView>
+                  </>
+              )}
           </Animated.View>
       </View>
   )}
@@ -1156,8 +1452,8 @@ return (
             <View style={styles.settingsHandle} />
             
             {settingsView === 'main' ? (
-                // Main Settings Menu (Hub)
-                <>
+                // 🔥 Main Settings Menu (Hub) - NOW SCROLLABLE 🔥
+                <ScrollView contentContainerStyle={styles.scrollSettingsContainer}>
                     <View style={styles.settingsHeader}>
                         <Text style={styles.settingsTitle}>الإعدادات</Text>
                         <TouchableOpacity onPress={() => setShowSettings(false)}><Ionicons name="close-circle" size={30} color="#555" /></TouchableOpacity>
@@ -1180,16 +1476,26 @@ return (
                         </TouchableOpacity>
 
                         {isAdmin && (
-                            <TouchableOpacity style={[styles.settingsCard, {borderColor: '#b91c1c'}]} onPress={() => openRightDrawer('cleaner')}>
-                                <View style={[styles.cardIcon, { backgroundColor: '#b91c1c' }]}>
-                                    <Ionicons name="trash-outline" size={32} color="#fff" />
-                                </View>
-                                <Text style={[styles.cardTitle, {color: '#ff4444'}]}>الحذف الشامل</Text>
-                                <Text style={styles.cardSub}>حذف حقوق/نصوص من السيرفر</Text>
-                            </TouchableOpacity>
+                            <>
+                                <TouchableOpacity style={[styles.settingsCard, {borderColor: '#b91c1c'}]} onPress={() => openRightDrawer('cleaner')}>
+                                    <View style={[styles.cardIcon, { backgroundColor: '#b91c1c' }]}>
+                                        <Ionicons name="trash-outline" size={32} color="#fff" />
+                                    </View>
+                                    <Text style={[styles.cardTitle, {color: '#ff4444'}]}>الحذف الشامل</Text>
+                                    <Text style={styles.cardSub}>حذف حقوق/نصوص من السيرفر</Text>
+                                </TouchableOpacity>
+
+                                <TouchableOpacity style={[styles.settingsCard, {borderColor: '#4a7cc7'}]} onPress={() => openRightDrawer('copyright')}>
+                                    <View style={[styles.cardIcon, { backgroundColor: '#1e3a8a' }]}>
+                                        <Ionicons name="information-circle-outline" size={32} color="#fff" />
+                                    </View>
+                                    <Text style={[styles.cardTitle, {color: '#4a7cc7'}]}>حقوق التطبيق</Text>
+                                    <Text style={styles.cardSub}>إضافة نص في بداية ونهاية كل فصل</Text>
+                                </TouchableOpacity>
+                            </>
                         )}
                     </View>
-                </>
+                </ScrollView>
             ) : (
                 // Appearance View
                 <ScrollView showsVerticalScrollIndicator={false} contentContainerStyle={{paddingBottom: 50}}>
@@ -1511,4 +1817,10 @@ sliderLabel: { color: '#4ade80', fontSize: 14, fontWeight: 'bold', width: 40 },
 sliderTitle: { color: '#888', fontSize: 12, width: 70, textAlign: 'right' },
 toggleRow: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', backgroundColor: '#161616', padding: 15, borderRadius: 12 },
 toggleLabel: { color: '#888', fontSize: 13 },
+alignBtn: { padding: 8, backgroundColor: '#1a1a1a', borderRadius: 8, borderWidth: 1, borderColor: '#333' },
+alignBtnActive: { backgroundColor: '#4a7cc7', borderColor: '#4a7cc7' },
+freqBtn: { paddingHorizontal: 12, paddingVertical: 6, borderRadius: 20, backgroundColor: '#1a1a1a', borderWidth: 1, borderColor: '#333' },
+freqBtnActive: { backgroundColor: '#4a7cc7', borderColor: '#4a7cc7' },
+freqBtnText: { color: '#888', fontSize: 12, fontWeight: 'bold' },
+scrollSettingsContainer: { paddingBottom: 50 },
 });
