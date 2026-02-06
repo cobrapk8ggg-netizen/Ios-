@@ -29,6 +29,17 @@ import { DrawerContext } from '../../App'; // Import Context
 const { width } = Dimensions.get('window');
 const isLargeScreen = width > 600;
 
+// Helper for source name
+const getSourceName = (url) => {
+    if (!url) return null;
+    if (url.includes('rewayat.club')) return 'نادي الروايات';
+    if (url.includes('ar-no.com') || url.includes('ar-novel')) return 'Ar-Novel';
+    if (url.includes('novelfire')) return 'Novel Fire';
+    if (url.includes('freewebnovel')) return 'Free WebNovel';
+    if (url.includes('wuxiabox')) return 'WuxiaBox';
+    return 'مصدر خارجي';
+};
+
 const getTimeAgo = (date) => {
   if (!date) return 'قريباً';
   const seconds = Math.floor((new Date() - new Date(date)) / 1000);
@@ -170,6 +181,7 @@ const HeroCarousel = ({ data, navigation, scrollY }) => {
 const NovelCard = ({ item, onPress, size = 'normal' }) => {
   const cardWidth = size === 'large' ? 160 : 130;
   const cardHeight = size === 'large' ? 240 : 190;
+  const sourceName = getSourceName(item.sourceUrl);
 
   return (
     <TouchableOpacity 
@@ -188,6 +200,11 @@ const NovelCard = ({ item, onPress, size = 'normal' }) => {
         <View style={styles.chapterCountOverlay}>
           <Text style={styles.chapterCountText}>{item.chaptersCount || 0} فصل</Text>
         </View>
+        {sourceName && (
+            <View style={styles.cardSourceBadge}>
+                <Text style={styles.cardSourceText}>{sourceName}</Text>
+            </View>
+        )}
       </View>
       <Text style={styles.cardTitle} numberOfLines={2}>{item.title}</Text>
     </TouchableOpacity>
@@ -434,6 +451,8 @@ export default function HomeScreen({ navigation }) {
 
   const renderUpdateGridItem = ({ item }) => {
     const lastChapter = (item.chapters && item.chapters.length > 0) ? item.chapters[item.chapters.length - 1] : null;
+    const sourceName = getSourceName(item.sourceUrl);
+
     return (
       <TouchableOpacity 
         style={styles.gridCard}
@@ -458,6 +477,7 @@ export default function HomeScreen({ navigation }) {
             <Ionicons name="time-outline" size={14} color="#888" style={{ marginLeft: 6 }} />
             <Text style={styles.gridTimeText}>{getTimeAgo(item.lastChapterUpdate)}</Text>
           </View>
+          {sourceName && <Text style={{color:'#666', fontSize:9, marginTop:4, textAlign:'right'}}>{sourceName}</Text>}
         </View>
       </TouchableOpacity>
     );
@@ -555,7 +575,10 @@ export default function HomeScreen({ navigation }) {
 
         <View style={styles.section}>
             <View style={styles.sectionHeader}>
-                <TouchableOpacity onPress={() => navigation.navigate('Search')}><Text style={styles.seeAll}>المزيد</Text></TouchableOpacity>
+                {/* Updated Navigation to pass filter type */}
+                <TouchableOpacity onPress={() => navigation.navigate('Category', { title: 'آخر الفصول', filter: 'latest_updates' })}>
+                    <Text style={styles.seeAll}>المزيد</Text>
+                </TouchableOpacity>
                 <Text style={styles.sectionTitle}>آخر الفصول</Text>
             </View>
             <View style={styles.gridContainer}>
@@ -569,7 +592,10 @@ export default function HomeScreen({ navigation }) {
 
         <View style={styles.section}>
           <View style={styles.sectionHeader}>
-             <TouchableOpacity onPress={() => navigation.navigate('Search')}><Text style={styles.seeAll}>المزيد</Text></TouchableOpacity>
+             {/* Updated Navigation to pass filter type */}
+             <TouchableOpacity onPress={() => navigation.navigate('Category', { title: 'أضيف حديثاً', filter: 'latest_added' })}>
+                 <Text style={styles.seeAll}>المزيد</Text>
+             </TouchableOpacity>
              <Text style={styles.sectionTitle}>أضيف حديثاً</Text>
           </View>
           <FlatList
@@ -595,7 +621,7 @@ const styles = StyleSheet.create({
   headerContent: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', paddingHorizontal: 20, paddingVertical: 15, paddingTop: 40 },
   headerTitleSticky: { color: '#fff', fontSize: 18, fontWeight: 'bold' },
   iconBtn: { position: 'relative', padding: 5 },
-  rightIcons: { flexDirection: 'row', gap: 15 }, // لتجميع الأزرار يمين
+  rightIcons: { flexDirection: 'row', gap: 15 }, 
   badge: { position: 'absolute', bottom: -2, right: -2, backgroundColor: '#ff4444', borderRadius: 10, minWidth: 16, height: 16, justifyContent: 'center', alignItems: 'center', paddingHorizontal: 2, borderWidth: 1.5, borderColor: '#000' },
   badgeText: { color: '#fff', fontSize: 9, fontWeight: 'bold' },
   dropdownOverlay: { position: 'absolute', top: 0, left: 0, right: 0, bottom: 0, zIndex: 2000 },
@@ -646,6 +672,8 @@ const styles = StyleSheet.create({
   cardImage: { borderRadius: 8 },
   chapterCountOverlay: { position: 'absolute', bottom: 0, left: 0, right: 0, backgroundColor: 'rgba(0,0,0,0.7)', paddingVertical: 4, alignItems: 'center' },
   chapterCountText: { color: '#fff', fontSize: 10, fontWeight: 'bold' },
+  cardSourceBadge: { position: 'absolute', top: 5, left: 5, backgroundColor:'rgba(0,0,0,0.6)', paddingHorizontal: 4, borderRadius: 4},
+  cardSourceText: { color: '#ccc', fontSize: 8, fontWeight: 'bold' },
   cardTitle: { color: '#fff', fontSize: 13, fontWeight: '600', textAlign: 'right', marginBottom: 4 },
   continueCard: { marginHorizontal: 20, backgroundColor: '#111', borderRadius: 12, padding: 15, flexDirection: 'row-reverse', alignItems: 'center', borderWidth: 1, borderColor: '#222' },
   continueCover: { width: 60, height: 90, borderRadius: 6, marginLeft: 15 },
