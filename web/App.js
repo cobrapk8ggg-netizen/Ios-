@@ -46,6 +46,7 @@ import PrivacyPolicyScreen from './src/screens/PrivacyPolicyScreen';
 import SettingsScreen from './src/screens/SettingsScreen';
 import ContactUsScreen from './src/screens/ContactUsScreen';
 import AboutAppScreen from './src/screens/AboutAppScreen';
+import DownloadsScreen from './src/screens/DownloadsScreen'; // 🔥 IMPORTED
 
 import TranslatorHubScreen from './src/screens/TranslatorHubScreen';
 import EnglishNovelsSelectionScreen from './src/screens/EnglishNovelsSelectionScreen';
@@ -151,8 +152,14 @@ const CustomSideDrawer = ({ isOpen, onClose, navigation }) => {
 
             <View style={styles.divider} />
 
-            {/* ✅ القسم الثاني: الإعدادات */}
+            {/* ✅ القسم الثاني: التنزيلات و الإعدادات */}
             <View style={styles.drawerItems}>
+                {/* 🔥 UPDATED: Downloads button is now standard WHITE */}
+                <TouchableOpacity style={styles.drawerItem} onPress={() => navigateTo('Downloads')}>
+                    <Ionicons name="cloud-download-outline" size={24} color="#fff" />
+                    <Text style={styles.drawerLabel}>التنزيلات</Text>
+                </TouchableOpacity>
+
                 <TouchableOpacity style={styles.drawerItem} onPress={() => navigateTo('Settings')}>
                     <Ionicons name="settings-outline" size={24} color="#fff" />
                     <Text style={styles.drawerLabel}>الإعدادات</Text>
@@ -300,6 +307,7 @@ function NavigationRoot() {
                 <Stack.Screen name="Category" component={CategoryScreen} />
                 <Stack.Screen name="Search" component={SearchScreen} />
                 <Stack.Screen name="Settings" component={SettingsScreen} options={{ animation: 'slide_from_bottom' }} />
+                <Stack.Screen name="Downloads" component={DownloadsScreen} options={{ animation: 'slide_from_bottom' }} /> 
                 <Stack.Screen name="PrivacyPolicy" component={PrivacyPolicyScreen} options={{ animation: 'slide_from_bottom' }} />
                 <Stack.Screen name="ContactUs" component={ContactUsScreen} options={{ animation: 'slide_from_bottom' }} />
                 <Stack.Screen name="AboutApp" component={AboutAppScreen} options={{ animation: 'slide_from_bottom' }} />
