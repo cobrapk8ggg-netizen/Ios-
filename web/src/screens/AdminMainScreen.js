@@ -9,13 +9,18 @@ import {
   Dimensions,
   ActivityIndicator,
   StatusBar,
-  ImageBackground
+  ImageBackground,
+  Modal,
+  FlatList,
+  TextInput
 } from 'react-native';
 import { LinearGradient } from 'expo-linear-gradient';
 import { Ionicons } from '@expo/vector-icons';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { AuthContext } from '../context/AuthContext';
+import { useToast } from '../context/ToastContext'; // Import Toast
 import api from '../services/api';
+import CustomAlert from '../components/CustomAlert'; // Import CustomAlert
 
 const { width } = Dimensions.get('window');
 
@@ -37,8 +42,19 @@ const GlassCard = ({ children, style, onPress }) => (
 
 export default function AdminMainScreen({ navigation }) {
   const { userInfo } = useContext(AuthContext);
+  const { showToast } = useToast();
   const [stats, setStats] = useState({ users: 0, novels: 0, views: 0 });
   const [loading, setLoading] = useState(true);
+
+  // Transfer Ownership State
+  const [showUserPicker, setShowUserPicker] = useState(false);
+  const [usersList, setUsersList] = useState([]);
+  const [usersLoading, setUsersLoading] = useState(false);
+  const [userSearch, setUserSearch] = useState('');
+  
+  // Custom Alert State
+  const [alertVisible, setAlertVisible] = useState(false);
+  const [alertConfig, setAlertConfig] = useState({});
 
   useEffect(() => {
       fetchStats();
@@ -61,6 +77,53 @@ export default function AdminMainScreen({ navigation }) {
       }
   };
 
+  const fetchUsers = async () => {
+      setUsersLoading(true);
+      try {
+          const res = await api.get('/api/admin/users');
+          setUsersList(res.data);
+      } catch (e) {
+          showToast("فشل جلب قائمة المستخدمين", "error");
+      } finally {
+          setUsersLoading(false);
+      }
+  };
+
+  const handleOpenTransferModal = () => {
+      fetchUsers();
+      setShowUserPicker(true);
+  };
+
+  const confirmTransfer = (targetUser) => {
+      setShowUserPicker(false);
+      setAlertConfig({
+          title: "نقل ملكية شامل",
+          message: `هل أنت متأكد من نقل ملكية جميع الروايات في التطبيق إلى المستخدم "${targetUser.name}"؟ هذا إجراء لا يمكن التراجع عنه بسهولة.`,
+          type: 'danger',
+          confirmText: "نعم، انقل الملكية",
+          cancelText: "إلغاء",
+          onConfirm: () => {
+              setAlertVisible(false);
+              performTransfer(targetUser._id);
+          }
+      });
+      setAlertVisible(true);
+  };
+
+  const performTransfer = async (targetUserId) => {
+      setLoading(true); 
+      try {
+          // 🔥 Updated URL to match backend fix
+          const res = await api.put('/api/admin/ownership/transfer-all', { targetUserId });
+          showToast(`تم نقل ${res.data.modifiedCount} رواية بنجاح إلى المالك الجديد`, "success");
+      } catch (e) {
+          const msg = e.response?.data?.message || "فشل نقل الملكية";
+          showToast(msg, "error");
+      } finally {
+          setLoading(false);
+      }
+  };
+
   const DashboardButton = ({ title, icon, color, onPress, subtitle }) => (
       <GlassCard onPress={onPress} style={styles.dashboardBtn}>
           <View style={[styles.iconCircle, { backgroundColor: `${color}20` }]}>
@@ -72,6 +135,11 @@ export default function AdminMainScreen({ navigation }) {
           </View>
           <Ionicons name="chevron-back" size={20} color="#444" />
       </GlassCard>
+  );
+
+  const filteredUsers = usersList.filter(u => 
+      u.name.toLowerCase().includes(userSearch.toLowerCase()) || 
+      u.email.toLowerCase().includes(userSearch.toLowerCase())
   );
 
   return (
@@ -86,6 +154,17 @@ export default function AdminMainScreen({ navigation }) {
       >
           <LinearGradient colors={['rgba(0,0,0,0.6)', '#000000']} style={StyleSheet.absoluteFill} />
       </ImageBackground>
+
+      <CustomAlert 
+        visible={alertVisible}
+        title={alertConfig.title}
+        message={alertConfig.message}
+        type={alertConfig.type}
+        confirmText={alertConfig.confirmText}
+        cancelText={alertConfig.cancelText}
+        onCancel={() => setAlertVisible(false)}
+        onConfirm={alertConfig.onConfirm}
+      />
 
       <SafeAreaView style={styles.safeArea}>
         {/* Header */}
@@ -150,6 +229,14 @@ export default function AdminMainScreen({ navigation }) {
                     color="#3b82f6" 
                     onPress={() => navigation.navigate('Management')}
                 />
+                {/* 🔥 NEW BUTTON 🔥 */}
+                <DashboardButton 
+                    title="نقل ملكية الكل" 
+                    subtitle="نقل جميع روايات التطبيق لمستخدم واحد"
+                    icon="swap-horizontal" 
+                    color="#d946ef" 
+                    onPress={handleOpenTransferModal}
+                />
             </View>
 
             <Text style={styles.sectionTitle}>أدوات النشر</Text>
@@ -171,6 +258,52 @@ export default function AdminMainScreen({ navigation }) {
             </View>
 
         </ScrollView>
+
+        {/* USER PICKER MODAL */}
+        <Modal visible={showUserPicker} transparent animationType="slide" onRequestClose={() => setShowUserPicker(false)}>
+            <View style={styles.modalBg}>
+                <View style={styles.modalContent}>
+                    <Text style={styles.modalTitle}>اختر المالك الجديد للروايات</Text>
+                    
+                    <View style={styles.searchBox}>
+                        <Ionicons name="search" size={20} color="#666" />
+                        <TextInput 
+                            style={styles.searchInput}
+                            placeholder="بحث عن مستخدم..."
+                            placeholderTextColor="#666"
+                            value={userSearch}
+                            onChangeText={setUserSearch}
+                            textAlign="right"
+                        />
+                    </View>
+
+                    {usersLoading ? (
+                        <ActivityIndicator color="#fff" style={{marginVertical: 20}} />
+                    ) : (
+                        <FlatList
+                            data={filteredUsers}
+                            keyExtractor={item => item._id}
+                            style={{maxHeight: 400}}
+                            renderItem={({item}) => (
+                                <TouchableOpacity style={styles.userItem} onPress={() => confirmTransfer(item)}>
+                                    <View>
+                                        <Text style={styles.userName}>{item.name}</Text>
+                                        <Text style={styles.userEmail}>{item.email}</Text>
+                                    </View>
+                                    <Ionicons name="chevron-back" size={18} color="#666" />
+                                </TouchableOpacity>
+                            )}
+                            ListEmptyComponent={<Text style={{color: '#666', textAlign: 'center', marginTop: 20}}>لا يوجد مستخدمين</Text>}
+                        />
+                    )}
+                    
+                    <TouchableOpacity style={styles.closeModalBtn} onPress={() => setShowUserPicker(false)}>
+                        <Text style={{color: '#fff'}}>إغلاق</Text>
+                    </TouchableOpacity>
+                </View>
+            </View>
+        </Modal>
+
       </SafeAreaView>
     </View>
   );
@@ -230,4 +363,15 @@ const styles = StyleSheet.create({
   btnContent: { flex: 1 },
   btnTitle: { color: '#fff', fontSize: 16, fontWeight: 'bold', textAlign: 'right', marginBottom: 4 },
   btnSubtitle: { color: '#888', fontSize: 12, textAlign: 'right' },
+
+  // Modal Styles
+  modalBg: { flex: 1, backgroundColor: 'rgba(0,0,0,0.8)', justifyContent: 'center', padding: 20 },
+  modalContent: { backgroundColor: '#161616', borderRadius: 16, padding: 20, borderWidth: 1, borderColor: '#333' },
+  modalTitle: { color: '#fff', fontSize: 18, fontWeight: 'bold', textAlign: 'center', marginBottom: 15 },
+  searchBox: { flexDirection: 'row-reverse', alignItems: 'center', backgroundColor: '#222', borderRadius: 12, paddingHorizontal: 10, marginBottom: 15, borderWidth: 1, borderColor: '#333' },
+  searchInput: { flex: 1, color: '#fff', padding: 10, textAlign: 'right' },
+  userItem: { flexDirection: 'row-reverse', alignItems: 'center', justifyContent: 'space-between', padding: 15, borderBottomWidth: 1, borderBottomColor: '#222' },
+  userName: { color: '#fff', fontWeight: 'bold', textAlign: 'right' },
+  userEmail: { color: '#888', fontSize: 12, textAlign: 'right' },
+  closeModalBtn: { marginTop: 20, padding: 12, backgroundColor: '#333', borderRadius: 12, alignItems: 'center' }
 });
