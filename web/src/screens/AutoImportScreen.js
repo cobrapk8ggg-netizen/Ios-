@@ -27,8 +27,8 @@ import { Image } from 'expo-image';
 import { useFocusEffect } from '@react-navigation/native';
 
 // ⚠️ Update to the correct Python scraper URL
-const SCRAPER_URL = 'https://test-production-20af.up.railway.app/scrape';
-const SCHEDULER_URL = 'https://test-production-20af.up.railway.app/scheduler';
+const SCRAPER_URL = 'https://web-production-18196.up.railway.app/scrape';
+const SCHEDULER_URL = 'https://web-production-18196.up.railway.app/scheduler';
 const API_SECRET = 'Zeusndndjddnejdjdjdejekk29393838msmskxcm9239484jdndjdnddjj99292938338zeuslojdnejxxmejj82283849'; 
 
 // Glass Container
