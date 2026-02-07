@@ -70,16 +70,14 @@ export default function NovelDetailScreen({ route, navigation }) {
   const [loadingStatus, setLoadingStatus] = useState(true);
   const [loadingChapters, setLoadingChapters] = useState(true);
   
-  // No loading state needed for export anymore as it opens browser immediately
-  // const [isExporting, setIsExporting] = useState(false); 
-
   const [activeTab, setActiveTab] = useState('about'); 
   const [isFavorite, setIsFavorite] = useState(false);
   const [lastReadChapterId, setLastReadChapterId] = useState(0); 
   const [readChapters, setReadChapters] = useState([]); 
 
   // Pagination & Sorting State
-  const [currentRangeIndex, setCurrentRangeIndex] = useState(0);
+  const [currentPage, setCurrentPage] = useState(1);
+  const [totalPages, setTotalPages] = useState(1);
   const [isPagePickerVisible, setPagePickerVisible] = useState(false);
   const [sortDesc, setSortDesc] = useState(false); 
 
@@ -107,7 +105,8 @@ export default function NovelDetailScreen({ route, navigation }) {
           fetchOfflineData();
       } else {
           fetchLibraryStatus();
-          fetchFullNovelData();
+          // 🔥 Only fetch METADATA first (fast)
+          fetchNovelMetadata();
       }
       checkDownloads();
   }, [novelId]);
@@ -118,6 +117,13 @@ export default function NovelDetailScreen({ route, navigation }) {
           fetchAuthorData(fullNovel.authorEmail);
       }
   }, [fullNovel.authorEmail]);
+
+  // 🔥 4. Fetch Chapters ONLY when tab is active or page changes
+  useEffect(() => {
+      if (!isOfflineMode && activeTab === 'chapters') {
+          fetchChaptersPage(currentPage);
+      }
+  }, [activeTab, currentPage, sortDesc]);
 
   const fetchOfflineData = async () => {
       setLoadingChapters(true);
@@ -167,56 +173,57 @@ export default function NovelDetailScreen({ route, navigation }) {
           return;
       }
       try {
-          const authorRes = await api.get(`/api/user/stats?email=${email}`);
+          // 🔥🔥 NEW ENDPOINT: Use the specialized light endpoint instead of heavy /stats
+          const authorRes = await api.get(`/api/user/public-profile?email=${email}`);
           const profile = authorRes.data.user;
           if (profile) {
               authorCache[email] = profile;
               setAuthorProfile(profile);
           }
-      } catch (e) {}
+      } catch (e) {
+          console.log("Author fetch error", e.message);
+      }
   };
 
-  const fetchFullNovelData = async () => {
-      setLoadingChapters(true);
+  // 🔥 Optimized: Fetch ONLY Metadata (No chapters array)
+  const fetchNovelMetadata = async () => {
       try {
           const response = await api.get(`/api/novels/${novelId}`);
           const novelData = response.data;
+          
           setFullNovel(prev => ({ ...prev, ...novelData }));
-          if (novelData.chapters) setChapters(novelData.chapters);
+          
+          // Calculate total pages based on count from metadata
+          const count = novelData.chaptersCount || 0;
+          setTotalPages(Math.ceil(count / CHAPTERS_PER_PAGE) || 1);
+
           saveOfflineNovel(novelData); // Save meta implicitly
       } catch (e) {
-          fetchOfflineData();
+          // Fallback handled by offline logic
+      }
+  };
+
+  // 🔥 Optimized: Fetch Specific Page of Chapters
+  const fetchChaptersPage = async (page) => {
+      if (isOfflineMode) return; // Offline handles chapters differently
+
+      setLoadingChapters(true);
+      try {
+          const sortOrder = sortDesc ? 'desc' : 'asc';
+          const res = await api.get(`/api/novels/${novelId}/chapters-list`, {
+              params: {
+                  page: page,
+                  limit: CHAPTERS_PER_PAGE,
+                  sort: sortOrder
+              }
+          });
+          setChapters(res.data);
+      } catch (e) {
+          showToast("فشل تحميل الفصول", "error");
       } finally {
           setLoadingChapters(false);
       }
   };
-
-  // --- Sorting & Pagination Logic ---
-  const sortedChapters = useMemo(() => {
-      if (!chapters) return [];
-      return [...chapters].sort((a, b) => sortDesc ? b.number - a.number : a.number - b.number);
-  }, [chapters, sortDesc]);
-
-  // Auto-jump to last read page
-  useEffect(() => {
-      if (lastReadChapterId > 0 && sortedChapters.length > 0 && !loadingStatus) {
-          const idx = sortedChapters.findIndex(c => c.number === lastReadChapterId);
-          if (idx !== -1) {
-              const rangeIndex = Math.floor(idx / CHAPTERS_PER_PAGE);
-              if (rangeIndex !== currentRangeIndex) setCurrentRangeIndex(rangeIndex);
-          }
-      }
-  }, [loadingStatus, sortDesc, chapters.length]);
-
-  const totalPages = Math.ceil((sortedChapters.length || 0) / CHAPTERS_PER_PAGE);
-  const currentPage = currentRangeIndex + 1;
-
-  const displayedChapters = useMemo(() => {
-      if (!sortedChapters) return [];
-      const start = currentRangeIndex * CHAPTERS_PER_PAGE;
-      const end = start + CHAPTERS_PER_PAGE;
-      return sortedChapters.slice(start, end);
-  }, [sortedChapters, currentRangeIndex]);
 
   const handleDownloadChapter = async (chapter) => {
       if (downloadingChapter) return; 
@@ -264,7 +271,8 @@ export default function NovelDetailScreen({ route, navigation }) {
                     try {
                         await api.delete(`/api/admin/chapters/${novelId}/${chapNum}`);
                         showToast("تم حذف الفصل بنجاح", "success");
-                        fetchFullNovelData();
+                        // Refresh current page
+                        fetchChaptersPage(currentPage);
                     } catch (e) {
                         showToast("فشل الحذف", "error");
                     }
@@ -469,7 +477,7 @@ export default function NovelDetailScreen({ route, navigation }) {
           <View style={styles.paginationContainer}>
                <TouchableOpacity 
                    style={[styles.pageNavBtn, currentPage === 1 && styles.disabledBtn]} 
-                   onPress={() => setCurrentRangeIndex(Math.max(0, currentRangeIndex - 1))}
+                   onPress={() => setCurrentPage(Math.max(1, currentPage - 1))}
                    disabled={currentPage === 1}
                >
                    <Ionicons name="arrow-back" size={20} color={currentPage === 1 ? "#555" : "#fff"} />
@@ -485,7 +493,7 @@ export default function NovelDetailScreen({ route, navigation }) {
 
                <TouchableOpacity 
                    style={[styles.pageNavBtn, currentPage === totalPages && styles.disabledBtn]} 
-                   onPress={() => setCurrentRangeIndex(Math.min(totalPages - 1, currentRangeIndex + 1))}
+                   onPress={() => setCurrentPage(Math.min(totalPages, currentPage + 1))}
                    disabled={currentPage === totalPages}
                >
                    <Ionicons name="arrow-forward" size={20} color={currentPage === totalPages ? "#555" : "#fff"} />
@@ -572,7 +580,8 @@ export default function NovelDetailScreen({ route, navigation }) {
           
           <View style={styles.statsRow}>
             <View style={styles.statItem}>
-              <Text style={styles.statValue}>{loadingChapters ? '...' : (chapters.length || fullNovel.chaptersCount || 0)}</Text>
+              {/* Use pre-calculated chaptersCount */}
+              <Text style={styles.statValue}>{fullNovel.chaptersCount || 0}</Text>
               <Text style={styles.statLabel}>فصل</Text>
             </View>
             <View style={styles.statDivider} />
@@ -605,34 +614,10 @@ export default function NovelDetailScreen({ route, navigation }) {
             <TouchableOpacity 
               style={styles.readButton}
               onPress={() => {
-                if (chapters.length === 0 && loadingChapters) {
-                    showToast("يرجى الانتظار...", "info");
-                    return;
-                }
-                if (chapters.length === 0) {
-                    showToast("لا توجد فصول", "info");
-                    return;
-                }
-                
-                // 🔥 Logic to find the start chapter, safe for offline mode
+                // Logic to start reading doesn't rely on chapter list being loaded
                 let targetChapterNum = 1;
-
                 if (lastReadChapterId > 0) {
-                    // If last read exists in the current list (online or offline subset)
-                    if (chapters.find(c => c.number === lastReadChapterId)) {
-                        // Find next, if last read is the last one, stay there
-                        const next = chapters.find(c => c.number > lastReadChapterId);
-                        targetChapterNum = next ? next.number : lastReadChapterId;
-                    } else {
-                        // Last read not found (maybe not downloaded?), start from the first available
-                        // Sort chapters to find the first one
-                        const sorted = [...chapters].sort((a,b) => a.number - b.number);
-                        targetChapterNum = sorted[0].number;
-                    }
-                } else {
-                     // No history, start from first
-                     const sorted = [...chapters].sort((a,b) => a.number - b.number);
-                     targetChapterNum = sorted[0].number;
+                     targetChapterNum = lastReadChapterId;
                 }
                 
                 if (!isOfflineMode) incrementView(novelId, targetChapterNum);
@@ -650,7 +635,7 @@ export default function NovelDetailScreen({ route, navigation }) {
               ) : (
                   <>
                     <Text style={styles.readButtonText}>
-                        {lastReadChapterId > 0 && chapters.find(c => c.number === lastReadChapterId) ? 'استئناف القراءة' : 'ابدأ القراءة'}
+                        {lastReadChapterId > 0 ? 'استئناف القراءة' : 'ابدأ القراءة'}
                     </Text>
                     <Ionicons name="book-outline" size={20} color="#fff" style={{ marginLeft: 8 }} />
                   </>
@@ -704,14 +689,14 @@ export default function NovelDetailScreen({ route, navigation }) {
                    </Text>
                </TouchableOpacity>
 
-               {loadingChapters && chapters.length === 0 ? (
+               {loadingChapters ? (
                    <View style={{marginTop: 50, alignItems: 'center'}}>
                        <ActivityIndicator color="#4a7cc7" size="large" />
                        <Text style={{color: '#666', marginTop: 10}}>جاري التحميل...</Text>
                    </View>
-               ) : displayedChapters.length > 0 ? (
+               ) : chapters.length > 0 ? (
                    <>
-                       {displayedChapters.map(item => (
+                       {chapters.map(item => (
                          <View key={item._id || item.number}>
                             {renderChapterItem({ item })}
                          </View>
@@ -738,7 +723,7 @@ export default function NovelDetailScreen({ route, navigation }) {
                       renderItem={({item}) => (
                           <TouchableOpacity 
                             style={[styles.pickerItem, item === currentPage && styles.pickerItemActive]}
-                            onPress={() => { setCurrentRangeIndex(item - 1); setPagePickerVisible(false); }}
+                            onPress={() => { setCurrentPage(item); setPagePickerVisible(false); }}
                           >
                               {item === currentPage && <Ionicons name="checkmark" size={18} color="#fff" />}
                               <Text style={[styles.pickerItemText, item === currentPage && {color: '#fff', fontWeight: 'bold'}]}>{item}</Text>
@@ -756,14 +741,14 @@ export default function NovelDetailScreen({ route, navigation }) {
                   <Text style={styles.pickerTitle}>الترتيب</Text>
                   <TouchableOpacity 
                     style={[styles.pickerItem, !sortDesc && styles.pickerItemActive]}
-                    onPress={() => { setSortDesc(false); setCurrentRangeIndex(0); setSortPickerVisible(false); }}
+                    onPress={() => { setSortDesc(false); setCurrentPage(1); setSortPickerVisible(false); }}
                   >
                       {!sortDesc && <Ionicons name="checkmark" size={18} color="#fff" />}
                       <Text style={[styles.pickerItemText, !sortDesc && {color:'#fff', fontWeight:'bold'}]}>ترتيب من أقل لأعلى</Text>
                   </TouchableOpacity>
                   <TouchableOpacity 
                     style={[styles.pickerItem, sortDesc && styles.pickerItemActive]}
-                    onPress={() => { setSortDesc(true); setCurrentRangeIndex(0); setSortPickerVisible(false); }}
+                    onPress={() => { setSortDesc(true); setCurrentPage(1); setSortPickerVisible(false); }}
                   >
                       {sortDesc && <Ionicons name="checkmark" size={18} color="#fff" />}
                       <Text style={[styles.pickerItemText, sortDesc && {color:'#fff', fontWeight:'bold'}]}>ترتيب من أعلى لأقل</Text>
