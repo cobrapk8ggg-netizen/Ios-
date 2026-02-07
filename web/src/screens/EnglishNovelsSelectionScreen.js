@@ -28,12 +28,17 @@ const GlassContainer = ({ children, style }) => (
 
 export default function EnglishNovelsSelectionScreen({ navigation }) {
   const { showToast } = useToast();
-  const [novels, setNovels] = useState([]);
-  const [filteredNovels, setFilteredNovels] = useState([]);
-  const [loading, setLoading] = useState(true);
-  const [search, setSearch] = useState('');
-  const [selectedNovel, setSelectedNovel] = useState(null);
   
+  // State for List & Pagination
+  const [novels, setNovels] = useState([]);
+  const [loading, setLoading] = useState(true);
+  const [loadingMore, setLoadingMore] = useState(false);
+  const [page, setPage] = useState(1);
+  const [hasMore, setHasMore] = useState(true);
+  const [search, setSearch] = useState('');
+  
+  // Selection State
+  const [selectedNovel, setSelectedNovel] = useState(null);
   const [chapters, setChapters] = useState([]);
   const [selectionMode, setSelectionMode] = useState('all'); 
   const [selectedChapters, setSelectedChapters] = useState([]);
@@ -42,27 +47,61 @@ export default function EnglishNovelsSelectionScreen({ navigation }) {
   const [alertVisible, setAlertVisible] = useState(false);
   const [alertConfig, setAlertConfig] = useState({});
 
-  useEffect(() => { fetchNovels(); }, []);
+  useEffect(() => { 
+      fetchNovels(1); 
+  }, []);
 
+  // Debounce Search Effect
   useEffect(() => {
-      if (search.trim()) {
-          const lower = search.toLowerCase();
-          setFilteredNovels(novels.filter(n => n.title.toLowerCase().includes(lower)));
-      } else {
-          setFilteredNovels(novels);
-      }
-  }, [search, novels]);
+      const delayDebounce = setTimeout(() => {
+          fetchNovels(1);
+      }, 500);
 
-  const fetchNovels = async () => {
+      return () => clearTimeout(delayDebounce);
+  }, [search]);
+
+  // 🔥 TRUE LAZY LOADING FETCH 🔥
+  const fetchNovels = async (pageNum) => {
+      if (pageNum === 1) setLoading(true);
+      else setLoadingMore(true);
+
       try {
-          const res = await api.get('/api/translator/novels'); 
-          setNovels(res.data);
-          setFilteredNovels(res.data);
-      } catch(e) { console.log(e); } 
-      finally { setLoading(false); }
+          const res = await api.get('/api/translator/novels', {
+              params: {
+                  page: pageNum,
+                  limit: 20,
+                  search: search
+              }
+          }); 
+          
+          const newNovels = res.data;
+          
+          if (pageNum === 1) {
+              setNovels(newNovels);
+          } else {
+              setNovels(prev => [...prev, ...newNovels]);
+          }
+
+          setHasMore(newNovels.length === 20); // If < 20, we reached end
+          setPage(pageNum);
+
+      } catch(e) { 
+          console.log(e); 
+          showToast("فشل جلب الروايات", "error");
+      } finally { 
+          setLoading(false); 
+          setLoadingMore(false);
+      }
+  };
+
+  const handleLoadMore = () => {
+      if (!loadingMore && hasMore) {
+          fetchNovels(page + 1);
+      }
   };
 
   const fetchChapters = async (novelId) => {
+      // Need full data for chapters list when selected
       try {
           const res = await api.get(`/api/novels/${novelId}`);
           setChapters(res.data.chapters || []);
@@ -152,7 +191,8 @@ export default function EnglishNovelsSelectionScreen({ navigation }) {
                   <Image source={{uri: item.cover}} style={styles.novelCover} />
                   <View style={{flex:1}}>
                       <Text style={styles.novelTitle} numberOfLines={2}>{item.title}</Text>
-                      <Text style={styles.novelMeta}>{item.chaptersCount || item.chapters?.length || 0} فصل</Text>
+                      {/* Using pre-calculated count from server */}
+                      <Text style={styles.novelMeta}>{item.chaptersCount || 0} فصل</Text>
                   </View>
                   {selectedNovel?._id === item._id && <Ionicons name="checkmark-circle" size={24} color="#fff" />}
               </View>
@@ -190,14 +230,14 @@ export default function EnglishNovelsSelectionScreen({ navigation }) {
         </View>
 
         <View style={{flex:1, flexDirection:'row-reverse'}}>
-            {/* Right: Novels */}
+            {/* Right: Novels List (Pagination) */}
             <View style={styles.rightPane}>
                 <GlassContainer style={styles.searchBox}>
                     <View style={{flexDirection:'row', alignItems:'center', padding:10}}>
                         <Ionicons name="search" size={16} color="#666" />
                         <TextInput 
                             style={styles.searchInput} 
-                            placeholder="بحث..." 
+                            placeholder="بحث في السيرفر..." 
                             placeholderTextColor="#666"
                             value={search}
                             onChangeText={setSearch}
@@ -207,10 +247,28 @@ export default function EnglishNovelsSelectionScreen({ navigation }) {
                 
                 {loading ? <ActivityIndicator color="#fff" style={{marginTop:20}} /> : 
                     <FlatList 
-                        data={filteredNovels}
+                        data={novels}
                         keyExtractor={item => item._id}
                         renderItem={renderNovelItem}
                         contentContainerStyle={{paddingBottom: 20}}
+                        ListFooterComponent={() => (
+                            hasMore ? (
+                                <TouchableOpacity 
+                                    style={styles.loadMoreBtn} 
+                                    onPress={handleLoadMore} 
+                                    disabled={loadingMore}
+                                >
+                                    {loadingMore ? (
+                                        <ActivityIndicator color="#fff" size="small" />
+                                    ) : (
+                                        <Text style={styles.loadMoreText}>تحميل المزيد</Text>
+                                    )}
+                                </TouchableOpacity>
+                            ) : null
+                        )}
+                        ListEmptyComponent={
+                            <Text style={{color:'#666', textAlign:'center', marginTop:20}}>لا توجد نتائج</Text>
+                        }
                     />
                 }
             </View>
@@ -306,6 +364,9 @@ const styles = StyleSheet.create({
   novelCover: { width: 35, height: 50, borderRadius: 4, backgroundColor: '#333' },
   novelTitle: { color: '#fff', fontSize: 12, textAlign: 'right' },
   novelMeta: { color: '#666', fontSize: 10, textAlign: 'right' },
+
+  loadMoreBtn: { padding: 10, backgroundColor: 'rgba(255,255,255,0.1)', borderRadius: 8, alignItems: 'center', marginTop: 10, borderWidth: 1, borderColor: '#333' },
+  loadMoreText: { color: '#fff', fontSize: 12, fontWeight: 'bold' },
 
   selectedTitle: { color: '#fff', fontSize: 14, fontWeight: 'bold', textAlign: 'center', marginBottom: 15 },
   modeSwitch: { flexDirection: 'row-reverse', backgroundColor: '#111', padding: 4, borderRadius: 8, marginBottom: 10 },
