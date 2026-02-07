@@ -23,6 +23,8 @@ import { useFocusEffect } from '@react-navigation/native';
 import { AuthContext } from '../context/AuthContext';
 import { useToast } from '../context/ToastContext';
 import CommentsSection from '../components/CommentsSection'; 
+import { saveOfflineNovel, saveOfflineChapter, removeOfflineChapter, getOfflineNovelDetails } from '../services/offlineStorage';
+import CustomAlert from '../components/CustomAlert';
 
 const { width, height } = Dimensions.get('window');
 const CHAPTERS_PER_PAGE = 25; 
@@ -52,10 +54,10 @@ export default function NovelDetailScreen({ route, navigation }) {
   
   // 🔥 1. Initialize immediately with passed params (Rocket Speed Start)
   const initialNovelData = route.params.novel || {};
+  const isOfflineMode = route.params.isOfflineMode || false;
   const novelId = initialNovelData._id || initialNovelData.id || initialNovelData.novelId;
 
   const [fullNovel, setFullNovel] = useState(initialNovelData);
-  // Author State: Start with cache if available, or null
   const [authorProfile, setAuthorProfile] = useState(
       (initialNovelData.authorEmail && authorCache[initialNovelData.authorEmail]) || null
   );
@@ -79,6 +81,12 @@ export default function NovelDetailScreen({ route, navigation }) {
   // Sort Dropdown Modal
   const [isSortPickerVisible, setSortPickerVisible] = useState(false);
 
+  // Download State
+  const [downloadedChapters, setDownloadedChapters] = useState([]); 
+  const [downloadingChapter, setDownloadingChapter] = useState(null); 
+  const [alertVisible, setAlertVisible] = useState(false);
+  const [alertConfig, setAlertConfig] = useState({});
+
   const scrollY = useRef(new Animated.Value(0)).current;
 
   // Check ownership
@@ -90,19 +98,46 @@ export default function NovelDetailScreen({ route, navigation }) {
 
   // 🔥 2. Parallel Fetching on Mount
   useEffect(() => {
-      // A. Fetch Library Status (User specific)
-      fetchLibraryStatus();
-
-      // B. Fetch Full Novel Data (Heavy payload - handled separately)
-      fetchFullNovelData();
+      if (isOfflineMode) {
+          fetchOfflineData();
+      } else {
+          fetchLibraryStatus();
+          fetchFullNovelData();
+      }
+      checkDownloads();
   }, [novelId]);
 
   // 🔥 3. Fetch Author whenever authorEmail is available (Effect)
   useEffect(() => {
-      if (fullNovel.authorEmail) {
+      if (fullNovel.authorEmail && !isOfflineMode) {
           fetchAuthorData(fullNovel.authorEmail);
       }
   }, [fullNovel.authorEmail]);
+
+  const fetchOfflineData = async () => {
+      setLoadingChapters(true);
+      const data = await getOfflineNovelDetails(novelId);
+      if (data) {
+          setFullNovel(prev => ({ ...prev, ...data }));
+          setChapters(data.chapters || []);
+          // In offline mode, downloaded chapters IS the chapters list
+          setDownloadedChapters(data.chapters.map(c => c.number));
+      }
+      setLoadingChapters(false);
+      setLoadingStatus(false);
+  };
+
+  const checkDownloads = async () => {
+      const AsyncStorage = require('@react-native-async-storage/async-storage').default;
+      try {
+          const keys = await AsyncStorage.getAllKeys();
+          const prefix = `@offline_ch_${novelId}_`;
+          const downloaded = keys
+              .filter(k => k.startsWith(prefix))
+              .map(k => parseInt(k.replace(prefix, '')));
+          setDownloadedChapters(downloaded);
+      } catch(e) {}
+  };
 
   const fetchLibraryStatus = async () => {
       setLoadingStatus(true);
@@ -114,7 +149,7 @@ export default function NovelDetailScreen({ route, navigation }) {
           setReadChapters(statusRes.data.readChapters || []);
         }
       } catch (e) {
-         console.log("Status check failed", e.message);
+         // Silently fail if offline or error
       } finally {
           setLoadingStatus(false);
       }
@@ -122,24 +157,18 @@ export default function NovelDetailScreen({ route, navigation }) {
 
   const fetchAuthorData = async (email) => {
       if (!email) return;
-      
-      // Check Cache First
       if (authorCache[email]) {
           setAuthorProfile(authorCache[email]);
           return;
       }
-
-      // Fetch silently (don't block UI)
       try {
           const authorRes = await api.get(`/api/user/stats?email=${email}`);
           const profile = authorRes.data.user;
           if (profile) {
-              authorCache[email] = profile; // Cache it
+              authorCache[email] = profile;
               setAuthorProfile(profile);
           }
-      } catch (e) { 
-          console.log("Failed to fetch author profile (silent fail)"); 
-      }
+      } catch (e) {}
   };
 
   const fetchFullNovelData = async () => {
@@ -147,16 +176,11 @@ export default function NovelDetailScreen({ route, navigation }) {
       try {
           const response = await api.get(`/api/novels/${novelId}`);
           const novelData = response.data;
-          
-          // Merge with existing data to keep UI stable
           setFullNovel(prev => ({ ...prev, ...novelData }));
-          
-          if (novelData.chapters) {
-              setChapters(novelData.chapters);
-          }
+          if (novelData.chapters) setChapters(novelData.chapters);
+          saveOfflineNovel(novelData); // Save meta implicitly
       } catch (e) {
-          console.error('Error fetching novel details', e);
-          showToast("فشل تحديث بيانات الرواية", "error");
+          fetchOfflineData();
       } finally {
           setLoadingChapters(false);
       }
@@ -165,7 +189,6 @@ export default function NovelDetailScreen({ route, navigation }) {
   // --- Sorting & Pagination Logic ---
   const sortedChapters = useMemo(() => {
       if (!chapters) return [];
-      // Create a shallow copy to sort
       return [...chapters].sort((a, b) => sortDesc ? b.number - a.number : a.number - b.number);
   }, [chapters, sortDesc]);
 
@@ -178,7 +201,7 @@ export default function NovelDetailScreen({ route, navigation }) {
               if (rangeIndex !== currentRangeIndex) setCurrentRangeIndex(rangeIndex);
           }
       }
-  }, [loadingStatus, sortDesc, chapters.length]); // Only run when data is ready
+  }, [loadingStatus, sortDesc, chapters.length]);
 
   const totalPages = Math.ceil((sortedChapters.length || 0) / CHAPTERS_PER_PAGE);
   const currentPage = currentRangeIndex + 1;
@@ -189,6 +212,39 @@ export default function NovelDetailScreen({ route, navigation }) {
       const end = start + CHAPTERS_PER_PAGE;
       return sortedChapters.slice(start, end);
   }, [sortedChapters, currentRangeIndex]);
+
+  const handleDownloadChapter = async (chapter) => {
+      if (downloadingChapter) return; 
+      setDownloadingChapter(chapter.number);
+      try {
+          const res = await api.get(`/api/novels/${novelId}/chapters/${chapter.number}`);
+          await saveOfflineChapter(novelId, res.data);
+          setDownloadedChapters(prev => [...prev, chapter.number]);
+          showToast("تم تنزيل الفصل", "success");
+          saveOfflineNovel(fullNovel);
+      } catch (e) {
+          showToast("فشل التنزيل", "error");
+      } finally {
+          setDownloadingChapter(null);
+      }
+  };
+
+  const confirmRemoveDownload = (chapterNumber) => {
+      setAlertConfig({
+          title: "حذف التنزيل",
+          message: `هل تريد حذف الفصل ${chapterNumber} من الجهاز؟`,
+          type: "warning",
+          confirmText: "حذف",
+          cancelText: "إلغاء",
+          onConfirm: async () => {
+              setAlertVisible(false);
+              await removeOfflineChapter(novelId, chapterNumber);
+              setDownloadedChapters(prev => prev.filter(n => n !== chapterNumber));
+              showToast("تم الحذف من الجهاز", "success");
+          }
+      });
+      setAlertVisible(true);
+  };
 
   const handleDeleteChapter = (chapNum) => {
     Alert.alert(
@@ -203,7 +259,6 @@ export default function NovelDetailScreen({ route, navigation }) {
                     try {
                         await api.delete(`/api/admin/chapters/${novelId}/${chapNum}`);
                         showToast("تم حذف الفصل بنجاح", "success");
-                        // Refresh chapters
                         fetchFullNovelData();
                     } catch (e) {
                         showToast("فشل الحذف", "error");
@@ -217,11 +272,7 @@ export default function NovelDetailScreen({ route, navigation }) {
   const handleEditChapter = (chapter) => {
       navigation.navigate('AdminDashboard', { 
           editNovel: fullNovel, 
-          editChapter: { 
-              novelId: novelId,
-              number: chapter.number,
-              title: chapter.title
-          }
+          editChapter: { novelId: novelId, number: chapter.number, title: chapter.title }
       });
   };
 
@@ -242,15 +293,14 @@ export default function NovelDetailScreen({ route, navigation }) {
   });
 
   const toggleLibrary = async () => {
+    if (isOfflineMode) { showToast("لا يمكن التعديل بدون إنترنت", "warning"); return; }
     try {
       const newStatus = !isFavorite;
-      setIsFavorite(newStatus); // Optimistic UI update
-      
+      setIsFavorite(newStatus); 
       setFullNovel(prev => ({
           ...prev,
           favorites: (prev.favorites || 0) + (newStatus ? 1 : -1)
       }));
-
       await api.post('/api/novel/update', {
         novelId: novelId,
         title: fullNovel.title,
@@ -258,12 +308,10 @@ export default function NovelDetailScreen({ route, navigation }) {
         author: fullNovel.author,
         isFavorite: newStatus
       });
-      
       if (newStatus) showToast("تمت الإضافة للمفضلة");
       else showToast("تم الحذف من المفضلة", "info");
-
     } catch (error) {
-      setIsFavorite(!isFavorite); // Revert on error
+      setIsFavorite(!isFavorite); 
       showToast("فشلت العملية", "error");
     }
   };
@@ -280,14 +328,22 @@ export default function NovelDetailScreen({ route, navigation }) {
   const renderChapterItem = ({ item }) => {
     const isRead = readChapters.includes(item.number);
     const dateStr = item.createdAt ? new Date(item.createdAt).toISOString().split('T')[0].replace(/-/g, '/') : '---';
-    
+    const isDownloaded = downloadedChapters.includes(item.number);
+    const isDownloading = downloadingChapter === item.number;
+
     return (
         <View style={styles.chapterRowContainer}>
             <TouchableOpacity 
                 style={styles.chapterBadge}
                 onPress={() => {
-                    incrementView(novelId, item.number);
-                    navigation.navigate('Reader', { novel: fullNovel, chapterId: item.number });
+                    if (!isOfflineMode) incrementView(novelId, item.number);
+                    // Pass available chapters to Reader for offline navigation
+                    navigation.navigate('Reader', { 
+                        novel: fullNovel, 
+                        chapterId: item.number, 
+                        isOfflineMode,
+                        availableChapters: isOfflineMode ? downloadedChapters : null
+                    });
                 }}
             >
                 <Text style={styles.chapterBadgeText}>{item.number}</Text>
@@ -297,8 +353,13 @@ export default function NovelDetailScreen({ route, navigation }) {
             <TouchableOpacity 
               style={styles.chapterInfo}
               onPress={() => {
-                incrementView(novelId, item.number);
-                navigation.navigate('Reader', { novel: fullNovel, chapterId: item.number });
+                if (!isOfflineMode) incrementView(novelId, item.number);
+                navigation.navigate('Reader', { 
+                    novel: fullNovel, 
+                    chapterId: item.number, 
+                    isOfflineMode,
+                    availableChapters: isOfflineMode ? downloadedChapters : null
+                });
               }}
             >
                 <Text style={[styles.chapterTitle, isRead && styles.textRead]} numberOfLines={1}>
@@ -309,57 +370,60 @@ export default function NovelDetailScreen({ route, navigation }) {
                 </Text>
             </TouchableOpacity>
 
-             {isOwner && (
-                 <View style={styles.adminControls}>
-                     <TouchableOpacity style={styles.adminBtn} onPress={() => handleEditChapter(item)}>
-                         <Ionicons name="create-outline" size={16} color="#4a7cc7" />
+             <View style={styles.adminControls}>
+                 {isDownloading ? (
+                     <ActivityIndicator size="small" color="#fff" style={{padding: 5}} />
+                 ) : isDownloaded ? (
+                     <TouchableOpacity onPress={() => confirmRemoveDownload(item.number)} style={{padding: 5}}>
+                         <Ionicons name="checkmark-circle" size={22} color="#fff" />
                      </TouchableOpacity>
-                     <TouchableOpacity style={styles.adminBtn} onPress={() => handleDeleteChapter(item.number)}>
-                         <Ionicons name="trash-outline" size={16} color="#ff4444" />
-                     </TouchableOpacity>
-                 </View>
-             )}
+                 ) : (
+                     !isOfflineMode && (
+                         <TouchableOpacity onPress={() => handleDownloadChapter(item)} style={{padding: 5}}>
+                             <Ionicons name="cloud-download-outline" size={22} color="#fff" />
+                         </TouchableOpacity>
+                     )
+                 )}
+
+                 {isOwner && !isOfflineMode && (
+                     <>
+                         <TouchableOpacity style={styles.adminBtn} onPress={() => handleEditChapter(item)}>
+                             <Ionicons name="create-outline" size={16} color="#4a7cc7" />
+                         </TouchableOpacity>
+                         <TouchableOpacity style={styles.adminBtn} onPress={() => handleDeleteChapter(item.number)}>
+                             <Ionicons name="trash-outline" size={16} color="#ff4444" />
+                         </TouchableOpacity>
+                     </>
+                 )}
+             </View>
         </View>
     );
   };
 
-  // Author Widget (Display Immediately)
   const AuthorWidget = () => {
-      // Logic: Use profile data if fetched, otherwise fallback to novel basic data
       const displayName = authorProfile?.name || fullNovel.author || 'Zeus';
       const targetId = authorProfile?._id;
-
-      // Set default images if not provided
       const displayAvatar = authorProfile?.picture ? { uri: authorProfile.picture } : require('../../assets/adaptive-icon.png');
       const displayBanner = authorProfile?.banner ? { uri: authorProfile.banner } : require('../../assets/banner.png');
 
       return (
           <View style={styles.authorSection}>
               <Text style={styles.sectionTitle}>الناشر</Text>
-              
               <TouchableOpacity 
                 style={styles.authorCardContainer}
                 activeOpacity={0.9}
-                disabled={!targetId} // Disable if we don't have ID yet
-                onPress={() => {
-                    if (targetId) {
-                        navigation.push('UserProfile', { userId: targetId });
-                    }
-                }}
+                disabled={!targetId || isOfflineMode}
+                onPress={() => { if (targetId) navigation.push('UserProfile', { userId: targetId }); }}
               >
                   <View style={styles.authorBannerWrapper}>
                     <Image source={displayBanner} style={styles.authorBannerImage} contentFit="cover" />
                     <LinearGradient colors={['rgba(0,0,0,0.2)', 'rgba(0,0,0,0.8)']} style={StyleSheet.absoluteFill} />
                     <View style={styles.authorOverlayContent}>
                         <View style={styles.authorAvatarWrapper}>
-                            <Image 
-                                source={displayAvatar} 
-                                style={styles.authorAvatarImage}
-                                contentFit="cover"
-                            />
+                            <Image source={displayAvatar} style={styles.authorAvatarImage} contentFit="cover" />
                         </View>
                         <Text style={styles.authorDisplayName} numberOfLines={1}>{displayName}</Text>
-                        {!targetId && <Text style={{color: '#888', fontSize: 10, marginTop: 4}}>جاري جلب البيانات...</Text>}
+                        {!targetId && !isOfflineMode && <Text style={{color: '#888', fontSize: 10, marginTop: 4}}>جاري جلب البيانات...</Text>}
                     </View>
                   </View>
               </TouchableOpacity>
@@ -369,7 +433,6 @@ export default function NovelDetailScreen({ route, navigation }) {
 
   const renderPagination = () => {
       if (totalPages <= 1) return null;
-
       return (
           <View style={styles.paginationContainer}>
                <TouchableOpacity 
@@ -409,6 +472,17 @@ export default function NovelDetailScreen({ route, navigation }) {
     <View style={styles.container}>
       <StatusBar barStyle="light-content" />
       
+      <CustomAlert 
+        visible={alertVisible}
+        title={alertConfig.title}
+        message={alertConfig.message}
+        type={alertConfig.type}
+        confirmText={alertConfig.confirmText}
+        cancelText={alertConfig.cancelText}
+        onCancel={() => setAlertVisible(false)}
+        onConfirm={alertConfig.onConfirm}
+      />
+
       <Animated.View style={[styles.header, { opacity: headerOpacity }]}>
         <SafeAreaView edges={['top']} style={styles.headerSafe}>
           <Text style={styles.headerTitle} numberOfLines={1}>{fullNovel.title}</Text>
@@ -419,7 +493,7 @@ export default function NovelDetailScreen({ route, navigation }) {
         <TouchableOpacity style={styles.iconButton} onPress={() => navigation.goBack()}>
           <Ionicons name="arrow-back" size={24} color="#fff" />
         </TouchableOpacity>
-        {isOwner && (
+        {isOwner && !isOfflineMode && (
             <TouchableOpacity style={[styles.iconButton, {backgroundColor: '#4a7cc7'}]} onPress={handleEditNovel}>
                 <Ionicons name="settings-outline" size={24} color="#fff" />
             </TouchableOpacity>
@@ -437,7 +511,6 @@ export default function NovelDetailScreen({ route, navigation }) {
             source={fullNovel.cover} 
             style={styles.coverImage} 
             contentFit="cover"
-            transition={300}
             cachePolicy="memory-disk" 
           />
           <LinearGradient colors={['transparent', '#000000']} style={styles.coverGradient} />
@@ -474,7 +547,7 @@ export default function NovelDetailScreen({ route, navigation }) {
             <TouchableOpacity 
               style={[styles.libraryButton, isFavorite && styles.libraryButtonActive]} 
               onPress={toggleLibrary}
-              disabled={loadingStatus}
+              disabled={loadingStatus || isOfflineMode}
             >
               {loadingStatus ? (
                   <ActivityIndicator size="small" color="#fff" />
@@ -483,46 +556,69 @@ export default function NovelDetailScreen({ route, navigation }) {
               )}
             </TouchableOpacity>
 
-            {/* Read Button */}
+            {/* Read Button - Updated Logic */}
             <TouchableOpacity 
               style={styles.readButton}
               onPress={() => {
                 if (chapters.length === 0 && loadingChapters) {
-                    showToast("يرجى الانتظار، جاري تحميل الفصول...", "info");
+                    showToast("يرجى الانتظار...", "info");
                     return;
                 }
                 if (chapters.length === 0) {
-                    showToast("لا توجد فصول متاحة حالياً", "info");
+                    showToast("لا توجد فصول", "info");
                     return;
                 }
-                const targetChapterNum = lastReadChapterId > 0 && lastReadChapterId < chapters.length 
-                    ? lastReadChapterId + 1 
-                    : (lastReadChapterId === chapters.length ? lastReadChapterId : 1);
                 
-                incrementView(novelId, targetChapterNum);
-                navigation.navigate('Reader', { novel: fullNovel, chapterId: targetChapterNum })
+                // 🔥 Logic to find the start chapter, safe for offline mode
+                let targetChapterNum = 1;
+
+                if (lastReadChapterId > 0) {
+                    // If last read exists in the current list (online or offline subset)
+                    if (chapters.find(c => c.number === lastReadChapterId)) {
+                        // Find next, if last read is the last one, stay there
+                        const next = chapters.find(c => c.number > lastReadChapterId);
+                        targetChapterNum = next ? next.number : lastReadChapterId;
+                    } else {
+                        // Last read not found (maybe not downloaded?), start from the first available
+                        // Sort chapters to find the first one
+                        const sorted = [...chapters].sort((a,b) => a.number - b.number);
+                        targetChapterNum = sorted[0].number;
+                    }
+                } else {
+                     // No history, start from first
+                     const sorted = [...chapters].sort((a,b) => a.number - b.number);
+                     targetChapterNum = sorted[0].number;
+                }
+                
+                if (!isOfflineMode) incrementView(novelId, targetChapterNum);
+                navigation.navigate('Reader', { 
+                    novel: fullNovel, 
+                    chapterId: targetChapterNum, 
+                    isOfflineMode,
+                    // Pass the list of downloaded/available numbers to reader for navigation
+                    availableChapters: isOfflineMode ? downloadedChapters : null
+                });
               }}
             >
               {loadingStatus ? (
-                  <ActivityIndicator color="#000" />
+                  <ActivityIndicator color="#fff" />
               ) : (
                   <>
                     <Text style={styles.readButtonText}>
-                        {lastReadChapterId > 0 ? 'استئناف القراءة' : 'ابدأ القراءة'}
+                        {lastReadChapterId > 0 && chapters.find(c => c.number === lastReadChapterId) ? 'استئناف القراءة' : 'ابدأ القراءة'}
                     </Text>
-                    <Ionicons name="book-outline" size={20} color="#000" style={{ marginLeft: 8 }} />
+                    <Ionicons name="book-outline" size={20} color="#fff" style={{ marginLeft: 8 }} />
                   </>
               )}
             </TouchableOpacity>
           </View>
 
           <View style={styles.tabsContainer}>
-            {renderTabButton('comments', 'التعليقات')} 
+            {!isOfflineMode && renderTabButton('comments', 'التعليقات')} 
             {renderTabButton('chapters', 'الفصول')}
             {renderTabButton('about', 'نظرة عامة')} 
           </View>
 
-          {/* About Tab - Prioritize this display */}
           {activeTab === 'about' && (
             <View style={styles.aboutSection}>
               <Text style={styles.sectionTitle}>القصة</Text>
@@ -536,27 +632,23 @@ export default function NovelDetailScreen({ route, navigation }) {
                   <TouchableOpacity 
                     key={index} 
                     style={styles.tag}
-                    onPress={() => navigation.navigate('Category', { category: tag })}
+                    onPress={() => !isOfflineMode && navigation.navigate('Category', { category: tag })}
+                    disabled={isOfflineMode}
                   >
                     <Text style={styles.tagText}>{tag}</Text>
                   </TouchableOpacity>
                 ))}
               </View>
-
-              {/* Directly Render Widget without conditional loading blocker */}
               <AuthorWidget />
             </View>
           )} 
           
-          {/* Comments Tab */}
-          {activeTab === 'comments' && (
+          {activeTab === 'comments' && !isOfflineMode && (
               <CommentsSection novelId={novelId} user={userInfo} />
           )}
           
-          {/* Chapters Tab - Lazy Render */}
           {activeTab === 'chapters' && (
             <View style={styles.chaptersList}>
-               {/* Sort Controls */}
                <TouchableOpacity 
                    style={styles.sortHeader} 
                    onPress={() => setSortPickerVisible(true)}
@@ -570,7 +662,7 @@ export default function NovelDetailScreen({ route, navigation }) {
                {loadingChapters && chapters.length === 0 ? (
                    <View style={{marginTop: 50, alignItems: 'center'}}>
                        <ActivityIndicator color="#4a7cc7" size="large" />
-                       <Text style={{color: '#666', marginTop: 10}}>جاري جلب الفصول...</Text>
+                       <Text style={{color: '#666', marginTop: 10}}>جاري التحميل...</Text>
                    </View>
                ) : displayedChapters.length > 0 ? (
                    <>
@@ -579,7 +671,6 @@ export default function NovelDetailScreen({ route, navigation }) {
                             {renderChapterItem({ item })}
                          </View>
                        ))}
-                       {/* PAGINATION AT BOTTOM */}
                        {renderPagination()}
                    </>
                ) : (
@@ -590,7 +681,7 @@ export default function NovelDetailScreen({ route, navigation }) {
         </View>
       </Animated.ScrollView>
 
-      {/* Page Picker Modal */}
+      {/* Page Picker Modal - Glassy Update */}
       <Modal visible={isPagePickerVisible} transparent animationType="fade" onRequestClose={() => setPagePickerVisible(false)}>
           <TouchableOpacity style={styles.modalOverlay} activeOpacity={1} onPress={() => setPagePickerVisible(false)}>
               <View style={styles.pickerContainer}>
@@ -599,17 +690,13 @@ export default function NovelDetailScreen({ route, navigation }) {
                       data={Array.from({length: totalPages}, (_, i) => i + 1)}
                       keyExtractor={item => item.toString()}
                       contentContainerStyle={{paddingVertical: 10}}
-                      showsVerticalScrollIndicator={false}
                       renderItem={({item}) => (
                           <TouchableOpacity 
                             style={[styles.pickerItem, item === currentPage && styles.pickerItemActive]}
-                            onPress={() => {
-                                setCurrentRangeIndex(item - 1);
-                                setPagePickerVisible(false);
-                            }}
+                            onPress={() => { setCurrentRangeIndex(item - 1); setPagePickerVisible(false); }}
                           >
-                              <Text style={[styles.pickerItemText, item === currentPage && {color: '#fff', fontWeight: 'bold'}]}>{item}</Text>
                               {item === currentPage && <Ionicons name="checkmark" size={18} color="#fff" />}
+                              <Text style={[styles.pickerItemText, item === currentPage && {color: '#fff', fontWeight: 'bold'}]}>{item}</Text>
                           </TouchableOpacity>
                       )}
                   />
@@ -617,28 +704,25 @@ export default function NovelDetailScreen({ route, navigation }) {
           </TouchableOpacity>
       </Modal>
 
-      {/* Sort Picker Modal */}
+      {/* Sort Picker Modal - Glassy Update */}
       <Modal visible={isSortPickerVisible} transparent animationType="fade" onRequestClose={() => setSortPickerVisible(false)}>
           <TouchableOpacity style={styles.modalOverlay} activeOpacity={1} onPress={() => setSortPickerVisible(false)}>
               <View style={[styles.pickerContainer, {maxHeight: 200}]}>
                   <Text style={styles.pickerTitle}>الترتيب</Text>
-                  
                   <TouchableOpacity 
                     style={[styles.pickerItem, !sortDesc && styles.pickerItemActive]}
                     onPress={() => { setSortDesc(false); setCurrentRangeIndex(0); setSortPickerVisible(false); }}
                   >
-                      <Text style={[styles.pickerItemText, !sortDesc && {color:'#fff', fontWeight:'bold'}]}>ترتيب من أقل لأعلى</Text>
                       {!sortDesc && <Ionicons name="checkmark" size={18} color="#fff" />}
+                      <Text style={[styles.pickerItemText, !sortDesc && {color:'#fff', fontWeight:'bold'}]}>ترتيب من أقل لأعلى</Text>
                   </TouchableOpacity>
-
                   <TouchableOpacity 
                     style={[styles.pickerItem, sortDesc && styles.pickerItemActive]}
                     onPress={() => { setSortDesc(true); setCurrentRangeIndex(0); setSortPickerVisible(false); }}
                   >
-                      <Text style={[styles.pickerItemText, sortDesc && {color:'#fff', fontWeight:'bold'}]}>ترتيب من أعلى لأقل</Text>
                       {sortDesc && <Ionicons name="checkmark" size={18} color="#fff" />}
+                      <Text style={[styles.pickerItemText, sortDesc && {color:'#fff', fontWeight:'bold'}]}>ترتيب من أعلى لأقل</Text>
                   </TouchableOpacity>
-                  
               </View>
           </TouchableOpacity>
       </Modal>
@@ -658,21 +742,27 @@ const styles = StyleSheet.create({
   coverImage: { width: '100%', height: '100%' },
   coverGradient: { position: 'absolute', bottom: 0, left: 0, right: 0, height: '40%' },
   contentContainer: { marginTop: -40, paddingHorizontal: 20 },
-  
   statusBadgeContainer: { alignItems: 'center', marginBottom: 10 },
   statusBadge: { paddingHorizontal: 12, paddingVertical: 4, borderRadius: 12 },
   statusText: { color: '#fff', fontSize: 12, fontWeight: 'bold' },
-
   title: { fontSize: 28, fontWeight: 'bold', color: '#fff', textAlign: 'center', marginBottom: 25 },
   statsRow: { flexDirection: 'row', justifyContent: 'center', alignItems: 'center', marginBottom: 20, backgroundColor: '#111', paddingVertical: 15, borderRadius: 16, borderWidth: 1, borderColor: '#222' },
   statItem: { alignItems: 'center', paddingHorizontal: 20 },
   statValue: { color: '#fff', fontSize: 18, fontWeight: 'bold' },
   statLabel: { color: '#666', fontSize: 12, marginTop: 4 },
   statDivider: { width: 1, height: 30, backgroundColor: '#333' },
-  
   actionRow: { flexDirection: 'row', gap: 15, marginBottom: 30 },
-  readButton: { flex: 1, height: 56, backgroundColor: '#fff', borderRadius: 28, flexDirection: 'row', alignItems: 'center', justifyContent: 'center' },
-  readButtonText: { color: '#000', fontSize: 18, fontWeight: 'bold' },
+  
+  // Updated Read Button: Glassy Style
+  readButton: { 
+      flex: 1, height: 56, 
+      backgroundColor: 'rgba(255,255,255,0.1)', // Glassy
+      borderRadius: 28, 
+      flexDirection: 'row', alignItems: 'center', justifyContent: 'center',
+      borderWidth: 1, borderColor: 'rgba(255,255,255,0.2)'
+  },
+  readButtonText: { color: '#fff', fontSize: 18, fontWeight: 'bold' },
+  
   libraryButton: { width: 56, height: 56, borderRadius: 28, backgroundColor: '#1A1A1A', alignItems: 'center', justifyContent: 'center', borderWidth: 1, borderColor: '#333' },
   libraryButtonActive: { backgroundColor: '#4a7cc7', borderColor: '#4a7cc7' },
   tabsContainer: { flexDirection: 'row', borderBottomWidth: 1, borderBottomColor: '#1A1A1A', marginBottom: 20 },
@@ -686,113 +776,44 @@ const styles = StyleSheet.create({
   tagsRow: { flexDirection: 'row', flexWrap: 'wrap', justifyContent: 'flex-end', gap: 10 },
   tag: { backgroundColor: '#1A1A1A', paddingHorizontal: 16, paddingVertical: 8, borderRadius: 20, borderWidth: 1, borderColor: '#333' },
   tagText: { color: '#ccc', fontSize: 14 },
-  
-  // --- Pagination Styles ---
-  paginationContainer: {
-      flexDirection: 'row',
-      alignItems: 'center',
-      justifyContent: 'space-between',
-      paddingHorizontal: 0,
-      marginTop: 20,
-      marginBottom: 30,
-      gap: 10
-  },
-  pageNavBtn: {
-      width: 45,
-      height: 45,
-      borderRadius: 8,
-      borderWidth: 1,
-      borderColor: '#333',
-      justifyContent: 'center',
-      alignItems: 'center',
-      backgroundColor: '#111'
-  },
+  paginationContainer: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginTop: 20, marginBottom: 30, gap: 10 },
+  pageNavBtn: { width: 45, height: 45, borderRadius: 8, borderWidth: 1, borderColor: '#333', justifyContent: 'center', alignItems: 'center', backgroundColor: '#111' },
   disabledBtn: { opacity: 0.5, borderColor: '#222', backgroundColor: '#0a0a0a' },
-  pageSelector: {
-      flex: 1,
-      height: 45,
-      borderWidth: 1,
-      borderColor: '#333',
-      borderRadius: 8,
-      backgroundColor: '#111',
-      flexDirection: 'row',
-      alignItems: 'center',
-      paddingHorizontal: 15,
-      justifyContent: 'space-between'
-  },
+  pageSelector: { flex: 1, height: 45, borderWidth: 1, borderColor: '#333', borderRadius: 8, backgroundColor: '#111', flexDirection: 'row', alignItems: 'center', paddingHorizontal: 15, justifyContent: 'space-between' },
   pageLabel: { fontSize: 9, color: '#888', position: 'absolute', top: -8, right: 0, backgroundColor: '#111', paddingHorizontal: 2 },
   pageValue: { fontSize: 14, color: '#fff', fontWeight: 'bold', marginTop: 2 },
-
-  // --- Modal Styles ---
+  
+  // Updated Modal Styles: Glassy + Right Align
   modalOverlay: { flex: 1, backgroundColor: 'rgba(0,0,0,0.7)', justifyContent: 'center', alignItems: 'center' },
-  pickerContainer: {
-      width: '80%',
-      maxHeight: '60%',
-      backgroundColor: '#1a1a1a',
-      borderRadius: 12,
-      borderWidth: 1,
-      borderColor: '#333',
-      padding: 15
+  pickerContainer: { 
+      width: '80%', maxHeight: '60%', 
+      backgroundColor: 'rgba(20,20,20,0.95)', // Glassy Dark
+      borderRadius: 12, 
+      borderWidth: 1, borderColor: 'rgba(255,255,255,0.1)', 
+      padding: 15 
   },
   pickerTitle: { color: '#fff', fontSize: 16, fontWeight: 'bold', textAlign: 'center', marginBottom: 10, borderBottomWidth: 1, borderBottomColor: '#333', paddingBottom: 10 },
-  pickerItem: { paddingVertical: 12, borderBottomWidth: 1, borderBottomColor: '#2a2a2a', flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', paddingHorizontal: 10 },
-  pickerItemActive: { backgroundColor: '#4a7cc7', borderRadius: 8, borderBottomColor: 'transparent' },
-  pickerItemText: { color: '#ccc', fontSize: 16 },
-
-  // --- New Chapter List Styles (ZEUS Style: Badge Right, Black BG) ---
-  chaptersList: { paddingBottom: 20 },
-  sortHeader: { 
-      flexDirection: 'row', 
-      justifyContent: 'space-between', 
-      alignItems: 'center', 
-      paddingVertical: 10, 
-      marginBottom: 5, 
-      borderBottomWidth: 1, 
-      borderBottomColor: '#333' 
+  pickerItem: { 
+      paddingVertical: 12, borderBottomWidth: 1, borderBottomColor: '#2a2a2a', 
+      flexDirection: 'row', justifyContent: 'flex-end', // Right Align
+      alignItems: 'center', paddingHorizontal: 10, gap: 10
   },
-  sortHeaderText: { color: '#888', fontSize: 12, textAlign: 'right' },
-
-  chapterRowContainer: { 
-      flexDirection: 'row-reverse', // Badge on Right
-      alignItems: 'center', 
-      borderBottomWidth: 1, 
-      borderBottomColor: '#1A1A1A',
-      paddingVertical: 12,
-      justifyContent: 'space-between'
-  },
+  pickerItemActive: { backgroundColor: 'rgba(255,255,255,0.05)', borderRadius: 8, borderBottomColor: 'transparent' },
+  pickerItemText: { color: '#ccc', fontSize: 16, textAlign: 'right' },
   
-  // Badge (Right Side)
-  chapterBadge: {
-      backgroundColor: '#000000', // Black BG as requested
-      borderRadius: 4,
-      paddingHorizontal: 8,
-      paddingVertical: 5,
-      minWidth: 45,
-      alignItems: 'center',
-      justifyContent: 'center',
-      marginLeft: 10, // Margin left because it's on the right
-      borderWidth: 1,
-      borderColor: '#333'
-  },
+  chaptersList: { paddingBottom: 20 },
+  sortHeader: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', paddingVertical: 10, marginBottom: 5, borderBottomWidth: 1, borderBottomColor: '#333' },
+  sortHeaderText: { color: '#888', fontSize: 12, textAlign: 'right' },
+  
+  chapterRowContainer: { flexDirection: 'row-reverse', alignItems: 'center', borderBottomWidth: 1, borderBottomColor: '#1A1A1A', paddingVertical: 12, justifyContent: 'space-between' },
+  chapterBadge: { backgroundColor: '#000000', borderRadius: 4, paddingHorizontal: 8, paddingVertical: 5, minWidth: 45, alignItems: 'center', justifyContent: 'center', marginLeft: 10, borderWidth: 1, borderColor: '#333' },
   chapterBadgeText: { color: '#fff', fontWeight: 'bold', fontSize: 12 },
   readDot: { position: 'absolute', top: -3, right: -3, width: 8, height: 8, borderRadius: 4, backgroundColor: '#4ade80', borderWidth: 1, borderColor: '#000' },
-
-  // Details (Left Side, Aligned Right)
-  chapterInfo: {
-      flex: 1,
-      alignItems: 'flex-end', // Align text to right
-      justifyContent: 'center'
-  },
-  chapterTitle: { 
-      color: '#fff', 
-      fontSize: 14, 
-      fontWeight: 'bold', 
-      textAlign: 'right', 
-      marginBottom: 3 
-  },
+  chapterInfo: { flex: 1, alignItems: 'flex-end', justifyContent: 'center', paddingHorizontal: 10 },
+  chapterTitle: { color: '#fff', fontSize: 14, fontWeight: 'bold', textAlign: 'right', marginBottom: 3 },
   chapterMeta: { color: '#666', fontSize: 10, textAlign: 'right' },
   textRead: { color: '#888' },
-
+  
   adminControls: { flexDirection: 'row', gap: 10, marginRight: 5 }, 
   adminBtn: { padding: 4, backgroundColor: '#1a1a1a', borderRadius: 4, borderWidth: 1, borderColor: '#333' },
   
