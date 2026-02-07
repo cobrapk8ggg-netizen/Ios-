@@ -106,7 +106,7 @@ const HeroCarousel = ({ data, navigation, scrollY }) => {
                 />
                 <LinearGradient 
                     colors={['transparent', 'rgba(0,0,0,0.6)', '#000000']} 
-                    style={StyleSheet.absoluteFillObject}
+                    style={StyleSheet.absoluteFill}
                 />
                 <View style={styles.heroContent}>
                     <View style={styles.heroInfoContainer}>
@@ -178,10 +178,19 @@ const HeroCarousel = ({ data, navigation, scrollY }) => {
     );
 };
 
-const NovelCard = ({ item, onPress, size = 'normal' }) => {
+// 🔥 Updated NovelCard with Rank Support
+const NovelCard = ({ item, onPress, size = 'normal', rank }) => {
   const cardWidth = size === 'large' ? 160 : 130;
   const cardHeight = size === 'large' ? 240 : 190;
   const sourceName = getSourceName(item.sourceUrl);
+
+  // 🔥 Calm Night Colors for Ranking Badges
+  const getRankColor = (r) => {
+      if (r === 1) return '#CFA006'; // Muted Gold (Calm Night)
+      if (r === 2) return '#758896'; // Muted Slate/Silver (Calm Night)
+      if (r === 3) return '#A3684B'; // Muted Bronze/Wood (Calm Night)
+      return 'rgba(60, 60, 60, 0.9)'; // Dark subtle grey for others
+  };
 
   return (
     <TouchableOpacity 
@@ -197,6 +206,14 @@ const NovelCard = ({ item, onPress, size = 'normal' }) => {
           transition={300}
           cachePolicy="memory-disk"
         />
+        
+        {/* 🔥 Rank Badge (Unique Design) */}
+        {rank && (
+            <View style={[styles.rankBadge, { backgroundColor: getRankColor(rank) }]}>
+                <Text style={styles.rankText}>{rank}</Text>
+            </View>
+        )}
+
         <View style={styles.chapterCountOverlay}>
           <Text style={styles.chapterCountText}>{item.chaptersCount || 0} فصل</Text>
         </View>
@@ -245,7 +262,6 @@ export default function HomeScreen({ navigation }) {
   const notifButtonRef = useRef(null);
   const [notifButtonPos, setNotifButtonPos] = useState(0);
 
-  const [trendingFilter, setTrendingFilter] = useState('day'); 
   const scrollY = useRef(new Animated.Value(0)).current;
 
   useFocusEffect(
@@ -280,15 +296,17 @@ export default function HomeScreen({ navigation }) {
     try {
       const [featuredRes, trendingRes, updatesRes, newRes] = await Promise.all([
           api.get('/api/novels?filter=featured&limit=5'),
-          api.get(`/api/novels?filter=trending&timeRange=${trendingFilter}`),
+          api.get(`/api/novels?filter=trending&timeRange=week`), // Defaulting to week since tabs are removed
           api.get('/api/novels?filter=latest_updates&limit=24'),
           api.get('/api/novels?filter=latest_added')
       ]);
 
       setFeatured(featuredRes.data.novels || featuredRes.data || []);
-      setTrending(trendingRes.data.novels || trendingRes.data || []);
+      // 🔥 Slice Trending to 12 items
+      setTrending((trendingRes.data.novels || trendingRes.data || []).slice(0, 12));
       setLatestUpdates(updatesRes.data.novels || updatesRes.data || []);
-      setNewArrivals(newRes.data.novels || newRes.data || []);
+      // 🔥 Slice New Arrivals to 12 items
+      setNewArrivals((newRes.data.novels || newRes.data || []).slice(0, 12));
       
       await Promise.all([fetchLastRead(), fetchNotifications()]);
 
@@ -299,22 +317,9 @@ export default function HomeScreen({ navigation }) {
     }
   };
 
-  const fetchTrendingOnly = async (range) => {
-    try {
-      const res = await api.get(`/api/novels?filter=trending&timeRange=${range}`);
-      setTrending(res.data.novels || res.data || []);
-    } catch (error) {
-      console.log(error);
-    }
-  };
-
   useEffect(() => {
     fetchData();
   }, []);
-
-  useEffect(() => {
-    if (!loading) fetchTrendingOnly(trendingFilter);
-  }, [trendingFilter]);
 
   const onRefresh = async () => {
     setRefreshing(true);
@@ -561,16 +566,25 @@ export default function HomeScreen({ navigation }) {
 
         <View style={styles.section}>
           <View style={styles.sectionHeader}>
-            <View style={styles.filterTabs}>
-                {['month', 'week', 'day'].map(t => (
-                    <TouchableOpacity key={t} style={[styles.filterTab, trendingFilter === t && styles.filterTabActive]} onPress={() => setTrendingFilter(t)}>
-                        <Text style={[styles.filterText, trendingFilter === t && styles.filterTextActive]}>{t === 'month' ? 'شهر' : t === 'week' ? 'أسبوع' : 'يوم'}</Text>
-                    </TouchableOpacity>
-                ))}
-            </View>
+            {/* 🔥 Replaced Filters with See All for Trending */}
+            <TouchableOpacity onPress={() => navigation.navigate('Category', { title: 'الأكثر قراءة', filter: 'trending' })}>
+                 <Text style={styles.seeAll}>المزيد</Text>
+            </TouchableOpacity>
             <Text style={styles.sectionTitle}>الأكثر قراءة</Text>
           </View>
-          <AutoScrollCarousel data={trending} renderItem={({item}) => (<NovelCard item={item} onPress={() => navigation.navigate('NovelDetail', { novel: item })} />)} itemWidth={130} />
+          
+          {/* 🔥 Modified Render Item to pass Index/Rank */}
+          <AutoScrollCarousel 
+            data={trending} 
+            renderItem={({item, index}) => (
+                <NovelCard 
+                    item={item} 
+                    onPress={() => navigation.navigate('NovelDetail', { novel: item })} 
+                    rank={index + 1} // Pass rank 1-12
+                />
+            )} 
+            itemWidth={130} 
+          />
         </View>
 
         <View style={styles.section}>
@@ -602,7 +616,14 @@ export default function HomeScreen({ navigation }) {
             data={newArrivals}
             horizontal
             inverted={true}
-            renderItem={({item}) => (<NovelCard item={item} onPress={() => navigation.navigate('NovelDetail', { novel: item })} size="large" />)}
+            renderItem={({item}) => (
+                <NovelCard 
+                    item={item} 
+                    onPress={() => navigation.navigate('NovelDetail', { novel: item })} 
+                    size="large" 
+                    // No rank prop passed here = No Badge
+                />
+            )}
             keyExtractor={item => item._id}
             showsHorizontalScrollIndicator={false}
             contentContainerStyle={{paddingHorizontal: 15}}
@@ -662,14 +683,35 @@ const styles = StyleSheet.create({
   sectionTitle: { color: '#fff', fontSize: 20, fontWeight: 'bold' },
   sectionTitleSimple: { color: '#fff', fontSize: 20, fontWeight: 'bold', textAlign: 'right', marginRight: 20, marginBottom: 15 },
   seeAll: { color: '#666', fontSize: 14 },
-  filterTabs: { flexDirection: 'row', gap: 10 },
-  filterTab: { paddingHorizontal: 12, paddingVertical: 6, borderRadius: 20, backgroundColor: '#1A1A1A', borderWidth: 1, borderColor: '#333' },
-  filterTabActive: { backgroundColor: '#4a7cc7', borderColor: '#4a7cc7' },
-  filterText: { color: '#666', fontSize: 12 },
-  filterTextActive: { color: '#fff', fontWeight: 'bold' },
   cardContainer: { borderRadius: 8, overflow: 'hidden' },
   imageContainer: { borderRadius: 8, overflow: 'hidden', backgroundColor: '#1A1A1A', marginBottom: 8, position: 'relative' },
   cardImage: { borderRadius: 8 },
+  
+  // 🔥 New Rank Badge Styles (Calm Night Colors - Bookmark Style)
+  rankBadge: {
+      position: 'absolute',
+      top: 0, // Hang from top
+      right: 10,
+      width: 28,
+      height: 36,
+      alignItems: 'center',
+      justifyContent: 'center',
+      borderBottomLeftRadius: 14, // Curved bottom
+      borderBottomRightRadius: 14, // Curved bottom
+      zIndex: 20,
+      shadowColor: "#000",
+      shadowOffset: { width: 0, height: 2 },
+      shadowOpacity: 0.3,
+      shadowRadius: 2,
+      elevation: 3,
+      paddingBottom: 2
+  },
+  rankText: {
+      color: '#fff',
+      fontWeight: 'bold',
+      fontSize: 16,
+  },
+
   chapterCountOverlay: { position: 'absolute', bottom: 0, left: 0, right: 0, backgroundColor: 'rgba(0,0,0,0.7)', paddingVertical: 4, alignItems: 'center' },
   chapterCountText: { color: '#fff', fontSize: 10, fontWeight: 'bold' },
   cardSourceBadge: { position: 'absolute', top: 5, left: 5, backgroundColor:'rgba(0,0,0,0.6)', paddingHorizontal: 4, borderRadius: 4},
