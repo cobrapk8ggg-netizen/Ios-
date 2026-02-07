@@ -12,12 +12,14 @@ import {
   Alert,
   ScrollView,
   FlatList,
-  Modal
+  Modal,
+  Platform
 } from 'react-native';
 import { Image } from 'expo-image'; 
 import { LinearGradient } from 'expo-linear-gradient';
 import { Ionicons } from '@expo/vector-icons';
 import { SafeAreaView } from 'react-native-safe-area-context';
+import * as WebBrowser from 'expo-web-browser'; // 🔥 Use WebBrowser for internal browser
 import api, { incrementView } from '../services/api'; 
 import { useFocusEffect } from '@react-navigation/native';
 import { AuthContext } from '../context/AuthContext';
@@ -49,7 +51,7 @@ const getStatusColor = (status) => {
 const authorCache = {};
 
 export default function NovelDetailScreen({ route, navigation }) {
-  const { userInfo } = useContext(AuthContext);
+  const { userInfo, userToken } = useContext(AuthContext);
   const { showToast } = useToast();
   
   // 🔥 1. Initialize immediately with passed params (Rocket Speed Start)
@@ -67,6 +69,9 @@ export default function NovelDetailScreen({ route, navigation }) {
   // Independent Loading States
   const [loadingStatus, setLoadingStatus] = useState(true);
   const [loadingChapters, setLoadingChapters] = useState(true);
+  
+  // No loading state needed for export anymore as it opens browser immediately
+  // const [isExporting, setIsExporting] = useState(false); 
 
   const [activeTab, setActiveTab] = useState('about'); 
   const [isFavorite, setIsFavorite] = useState(false);
@@ -278,6 +283,33 @@ export default function NovelDetailScreen({ route, navigation }) {
 
   const handleEditNovel = () => {
       navigation.navigate('AdminDashboard', { editNovel: fullNovel });
+  };
+
+  const executeExport = async (includeTitle) => {
+      // Construct Download URL with token and includeTitle query param
+      const downloadUrl = `${api.defaults.baseURL}/api/admin/novels/${novelId}/export?token=${userToken}&includeTitle=${includeTitle}`;
+      
+      // 🔥 Open in Internal Browser (WebBrowser)
+      await WebBrowser.openBrowserAsync(downloadUrl);
+  };
+
+  const handleExportNovel = () => {
+      // Use standard Alert for options
+      Alert.alert(
+          "تنسيق التصدير",
+          "هل تريد تضمين عنوان الفصل في بداية كل ملف نصي؟",
+          [
+              { text: "إلغاء", style: "cancel" },
+              { 
+                  text: "لا (النص فقط)", 
+                  onPress: () => executeExport(false) 
+              },
+              { 
+                  text: "نعم (تضمين العنوان)", 
+                  onPress: () => executeExport(true) 
+              }
+          ]
+      );
   };
 
   const headerOpacity = scrollY.interpolate({
@@ -493,11 +525,24 @@ export default function NovelDetailScreen({ route, navigation }) {
         <TouchableOpacity style={styles.iconButton} onPress={() => navigation.goBack()}>
           <Ionicons name="arrow-back" size={24} color="#fff" />
         </TouchableOpacity>
-        {isOwner && !isOfflineMode && (
-            <TouchableOpacity style={[styles.iconButton, {backgroundColor: '#4a7cc7'}]} onPress={handleEditNovel}>
-                <Ionicons name="settings-outline" size={24} color="#fff" />
-            </TouchableOpacity>
-        )}
+        
+        <View style={{flexDirection: 'row', gap: 10}}>
+            {/* Export Button for Admin/Owner */}
+            {isOwner && !isOfflineMode && (
+                <TouchableOpacity 
+                    style={[styles.iconButton, {backgroundColor: 'rgba(255, 153, 0, 0.2)'}]} 
+                    onPress={handleExportNovel}
+                >
+                    <Ionicons name="download-outline" size={24} color="#f59e0b" />
+                </TouchableOpacity>
+            )}
+
+            {isOwner && !isOfflineMode && (
+                <TouchableOpacity style={[styles.iconButton, {backgroundColor: '#4a7cc7'}]} onPress={handleEditNovel}>
+                    <Ionicons name="settings-outline" size={24} color="#fff" />
+                </TouchableOpacity>
+            )}
+        </View>
       </SafeAreaView>
 
       <Animated.ScrollView
