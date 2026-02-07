@@ -27,6 +27,7 @@ import api, { incrementView } from '../services/api';
 import CommentsSection from '../components/CommentsSection'; 
 import { AuthContext } from '../context/AuthContext';
 import { useToast } from '../context/ToastContext';
+import { getOfflineChapterContent } from '../services/offlineStorage';
 
 const { width, height: SCREEN_HEIGHT } = Dimensions.get('window');
 const DRAWER_WIDTH = width * 0.85; 
@@ -110,7 +111,6 @@ const ADVANCED_COLORS = [
     { color: '#000000', name: 'black' },
 ];
 
-// Quote Styles Configuration
 const QUOTE_STYLES = [
     { id: 'all', label: 'بدون', preview: 'لا شيء' },
     { id: 'guillemets', label: '« »', preview: '«نص»' },
@@ -122,7 +122,8 @@ const QUOTE_STYLES = [
 export default function ReaderScreen({ route, navigation }) {
 const { userInfo } = useContext(AuthContext);
 const { showToast } = useToast();
-const { novel, chapterId } = route.params;
+const { novel, chapterId, isOfflineMode, availableChapters } = route.params; 
+
 const [chapter, setChapter] = useState(null);
 const [loading, setLoading] = useState(true);
 const [realTotalChapters, setRealTotalChapters] = useState(novel.chaptersCount || 0);
@@ -136,20 +137,18 @@ const [textColor, setTextColor] = useState('#e0e0e0');
 const [fontFamily, setFontFamily] = useState(FONT_OPTIONS[0]);
 const [showMenu, setShowMenu] = useState(false);
 const [showSettings, setShowSettings] = useState(false);
-const [settingsView, setSettingsView] = useState('main'); // 'main', 'appearance'
+const [settingsView, setSettingsView] = useState('main'); 
 
 // --- ADVANCED FORMATTING STATE ---
-// Dialogue - Default OFF
 const [enableDialogue, setEnableDialogue] = useState(false);
 const [dialogueColor, setDialogueColor] = useState('#4ade80');
-const [dialogueSize, setDialogueSize] = useState(100); // Percentage
+const [dialogueSize, setDialogueSize] = useState(100); 
 const [hideQuotes, setHideQuotes] = useState(false);
 const [selectedQuoteStyle, setSelectedQuoteStyle] = useState('all'); 
 
-// Markdown (Bold) - Default OFF
 const [enableMarkdown, setEnableMarkdown] = useState(false);
 const [markdownColor, setMarkdownColor] = useState('#ffffff'); 
-const [markdownSize, setMarkdownSize] = useState(100); // Percentage
+const [markdownSize, setMarkdownSize] = useState(100); 
 const [hideMarkdownMarks, setHideMarkdownMarks] = useState(false);
 const [selectedMarkdownStyle, setSelectedMarkdownStyle] = useState('all'); 
 
@@ -172,24 +171,16 @@ const [newCleanerWord, setNewCleanerWord] = useState('');
 const [cleanerEditingId, setCleanerEditingId] = useState(null); 
 const [cleaningLoading, setCleaningLoading] = useState(false);
 
-// --- COPYRIGHTS STATE ---
 const [copyrightStartText, setCopyrightStartText] = useState('');
 const [copyrightEndText, setCopyrightEndText] = useState('');
 const [copyrightLoading, setCopyrightLoading] = useState(false);
-// New Styling State
 const [copyrightStyle, setCopyrightStyle] = useState({
-    color: '#888888',
-    opacity: 1,
-    alignment: 'center',
-    isBold: true,
-    fontSize: 14 // Default Font Size
+    color: '#888888', opacity: 1, alignment: 'center', isBold: true, fontSize: 14 
 });
 const [hexColorInput, setHexColorInput] = useState('#888888');
-// Frequency State
-const [copyrightFrequency, setCopyrightFrequency] = useState('always'); // 'always', 'random', 'every_x'
+const [copyrightFrequency, setCopyrightFrequency] = useState('always'); 
 const [copyrightEveryX, setCopyrightEveryX] = useState('5');
 
-// Drawer State
 const [drawerMode, setDrawerMode] = useState('none'); 
 const slideAnim = useRef(new Animated.Value(-DRAWER_WIDTH)).current; 
 const slideAnimRight = useRef(new Animated.Value(DRAWER_WIDTH)).current; 
@@ -209,10 +200,12 @@ const isAdmin = userInfo?.role === 'admin';
 useEffect(() => {
     loadSettings();
     loadFoldersAndPrefs(); 
-    fetchAuthorData();
-    if (isAdmin) {
-        fetchCleanerWords();
-        fetchCopyrights();
+    if (!isOfflineMode) {
+        fetchAuthorData();
+        if (isAdmin) {
+            fetchCleanerWords();
+            fetchCopyrights();
+        }
     }
 }, []);
 
@@ -233,9 +226,7 @@ const fetchCleanerWords = async () => {
     try {
         const res = await api.get('/api/admin/cleaner');
         setCleanerWords(res.data);
-    } catch (e) {
-        console.log("Failed to fetch cleaner words");
-    }
+    } catch (e) {}
 };
 
 const fetchCopyrights = async () => {
@@ -249,9 +240,7 @@ const fetchCopyrights = async () => {
         }
         if (res.data.frequency) setCopyrightFrequency(res.data.frequency);
         if (res.data.everyX) setCopyrightEveryX(res.data.everyX.toString());
-    } catch (e) {
-        console.log("Failed to fetch copyrights");
-    }
+    } catch (e) {}
 };
 
 const handleSaveCopyrights = async () => {
@@ -265,7 +254,6 @@ const handleSaveCopyrights = async () => {
             everyX: parseInt(copyrightEveryX) || 5
         });
         showToast("تم حفظ الحقوق والإعدادات بنجاح", "success");
-        // Reload chapter to see changes
         fetchChapter();
     } catch (e) {
         showToast("فشل الحفظ", "error");
@@ -274,7 +262,6 @@ const handleSaveCopyrights = async () => {
     }
 };
 
-// --- Settings Logic ---
 const loadSettings = async () => {
     try {
         const saved = await AsyncStorage.getItem('@reader_settings_v3'); 
@@ -290,14 +277,12 @@ const loadSettings = async () => {
                 if (foundFont) setFontFamily(foundFont);
             }
             
-            // Advanced Dialogue
             if (parsed.enableDialogue !== undefined) setEnableDialogue(parsed.enableDialogue);
             if (parsed.dialogueColor) setDialogueColor(parsed.dialogueColor);
             if (parsed.dialogueSize) setDialogueSize(parsed.dialogueSize);
             if (parsed.hideQuotes !== undefined) setHideQuotes(parsed.hideQuotes);
             if (parsed.selectedQuoteStyle) setSelectedQuoteStyle(parsed.selectedQuoteStyle);
 
-            // Advanced Markdown
             if (parsed.enableMarkdown !== undefined) setEnableMarkdown(parsed.enableMarkdown);
             if (parsed.markdownColor) setMarkdownColor(parsed.markdownColor);
             if (parsed.markdownSize) setMarkdownSize(parsed.markdownSize);
@@ -314,8 +299,6 @@ const saveSettings = async (newSettings) => {
         await AsyncStorage.setItem('@reader_settings_v3', JSON.stringify({ ...existing, ...newSettings }));
     } catch (e) { console.error("Error saving settings", e); }
 };
-
-// --- NEW FOLDERS & REPLACEMENTS LOGIC ---
 
 const loadFoldersAndPrefs = async () => {
     try {
@@ -556,7 +539,7 @@ const getProcessedContent = useMemo(() => {
 }, [chapter, activeReplacementsList]);
 
 const updateProgressOnServer = async (currentChapter) => {
-  if (!currentChapter) return;
+  if (!currentChapter || isOfflineMode) return;
   try {
     await api.post('/api/novel/update', {
       novelId: novelId,
@@ -574,17 +557,37 @@ const updateProgressOnServer = async (currentChapter) => {
 const fetchChapter = async () => {
     setLoading(true);
     try {
-        const response = await api.get(`/api/novels/${novelId}/chapters/${chapterId}`);
-        setChapter(response.data);
-        if (response.data.totalChapters) {
-            setRealTotalChapters(response.data.totalChapters);
+        let chapterData = null;
+
+        // 1. Try Offline First (If downloaded)
+        const offlineData = await getOfflineChapterContent(novelId, chapterId);
+        if (offlineData) {
+            chapterData = offlineData;
+        } 
+        // 2. If not found locally and NOT forced offline, try API
+        else if (!isOfflineMode) {
+            const response = await api.get(`/api/novels/${novelId}/chapters/${chapterId}`);
+            chapterData = response.data;
+        } else {
+            throw new Error("الفصل غير متوفر بدون اتصال");
         }
-        incrementView(novelId, chapterId);
-        updateProgressOnServer(response.data);
-        fetchCommentCount();
+
+        setChapter(chapterData);
+        // 🔥 FIX: If availableChapters provided (offline mode), use that for total count
+        if (availableChapters) {
+             setRealTotalChapters(availableChapters.length);
+        } else if (chapterData.totalChapters) {
+            setRealTotalChapters(chapterData.totalChapters);
+        }
+        
+        if (!isOfflineMode) {
+            incrementView(novelId, chapterId);
+            updateProgressOnServer(chapterData);
+            fetchCommentCount();
+        }
     } catch (error) {
         console.error("Error fetching chapter:", error);
-        Alert.alert("خطأ", "فشل تحميل الفصل");
+        Alert.alert("خطأ", "فشل تحميل الفصل. تأكد من اتصالك أو أن الفصل منزّل.");
     } finally {
         setLoading(false);
     }
@@ -623,7 +626,6 @@ const toggleMenu = useCallback(() => {
 useEffect(() => {
     if (Platform.OS === 'web') {
         const handleWebMessage = (event) => {
-            // Check for toggleMenu message from iframe
             if (typeof event.data === 'string') {
                  if (event.data === 'toggleMenu') toggleMenu();
                  if (event.data === 'openComments') setShowComments(true);
@@ -646,6 +648,7 @@ const openLeftDrawer = () => {
 };
 
 const openRightDrawer = (mode) => { 
+    if (isOfflineMode) return; 
     setShowSettings(false);
     setDrawerMode(mode);
     if (mode === 'replacements' && !currentFolderId) {
@@ -689,18 +692,49 @@ const navigateChapter = (targetId) => {
     closeDrawers();
     if (parseInt(targetId) === parseInt(chapterId)) return;
     setTimeout(() => {
-        navigation.replace('Reader', { novel, chapterId: targetId });
+        navigation.replace('Reader', { 
+            novel, 
+            chapterId: targetId, 
+            isOfflineMode,
+            availableChapters 
+        });
     }, 300);
 };
 
+// 🔥🔥 FIX: Navigation using available chapters list 🔥🔥
 const navigateNextPrev = (offset) => {
-    const nextNum = parseInt(chapterId) + offset;
-    if (offset < 0 && nextNum < 1) return;
-    if (offset > 0 && realTotalChapters > 0 && nextNum > realTotalChapters) {
-        Alert.alert("تنبيه", "أنت في آخر فصل متاح.");
-        return;
+    if (availableChapters && availableChapters.length > 0) {
+        // Offline / Download Mode Logic
+        const currentNum = parseInt(chapterId);
+        // Find index in available list (assuming it is sorted, or we sort it)
+        const sortedAvailable = [...availableChapters].sort((a,b) => a - b);
+        const currentIndex = sortedAvailable.indexOf(currentNum);
+        
+        if (currentIndex === -1) return; // Should not happen
+
+        const nextIndex = currentIndex + offset;
+        
+        if (nextIndex >= 0 && nextIndex < sortedAvailable.length) {
+            const nextChapId = sortedAvailable[nextIndex];
+            navigation.replace('Reader', { 
+                novel, 
+                chapterId: nextChapId, 
+                isOfflineMode,
+                availableChapters 
+            });
+        } else {
+             Alert.alert("تنبيه", offset > 0 ? "أنت في آخر فصل منزل." : "أنت في أول فصل منزل.");
+        }
+    } else {
+        // Online Logic (Standard)
+        const nextNum = parseInt(chapterId) + offset;
+        if (offset < 0 && nextNum < 1) return;
+        if (offset > 0 && realTotalChapters > 0 && nextNum > realTotalChapters) {
+            Alert.alert("تنبيه", "أنت في آخر فصل متاح.");
+            return;
+        }
+        navigation.replace('Reader', { novel, chapterId: nextNum, isOfflineMode });
     }
-    navigation.replace('Reader', { novel, chapterId: nextNum });
 };
 
 const changeFontSize = (delta) => {
@@ -731,13 +765,10 @@ const androidTextLines = useMemo(() => {
 const generateHTML = () => {
 if (!chapter) return '';
 
-// 🔥🔥🔥 SEPARATED COPYRIGHT RENDERING LOGIC 🔥🔥🔥
 const startCopy = chapter.copyrightStart;
 const endCopy = chapter.copyrightEnd;
 const style = chapter.copyrightStyles || {};
 
-// Fixed CSS for copyright (Independent of user settings)
-// Note: We use fixed px sizes or 'medium' etc to avoid scaling with content-area
 const copyrightCSS = `
     color: ${style.color || '#888'};
     opacity: ${style.opacity || 1};
@@ -747,12 +778,9 @@ const copyrightCSS = `
     line-height: 1.5;
     padding: 15px 0;
     margin: 10px 0;
-    font-family: sans-serif; /* Keep it simple */
+    font-family: sans-serif; 
 `;
 
-// 🔥🔥🔥 THE INTERNAL DIVIDER (APP STYLE) 🔥🔥🔥
-// Instead of a border-bottom, we define a class that mimics the line
-// Used for both copyrights and internal chapter separators
 const dividerCSS = `
     .chapter-divider {
         border: none;
@@ -787,19 +815,14 @@ const formattedContent = getProcessedContent
     .map(line => {
         let processedLine = line;
 
-        // --- MARKDOWN PROCESSING (BOLD) ---
         if (enableMarkdown) {
             const markClass = hideMarkdownMarks ? 'mark-hidden' : 'mark-visible';
-            
-            // 🔥 Quote logic for Bold
             let openQuote = '', closeQuote = '';
             if (selectedMarkdownStyle === 'guillemets') { openQuote = '«'; closeQuote = '»'; }
             else if (selectedMarkdownStyle === 'curly') { openQuote = '“'; closeQuote = '”'; }
             else if (selectedMarkdownStyle === 'straight') { openQuote = '"'; closeQuote = '"'; }
             else if (selectedMarkdownStyle === 'single') { openQuote = '‘'; closeQuote = '’'; }
-            // 'all' means default/no extra quotes in this context
 
-            // The regex handles **bold** content
             processedLine = processedLine.replace(/\*\*(.*?)\*\*/g, (match, content) => {
                 const quoteStart = openQuote ? `<span class="cm-quote-style">${openQuote}</span>` : '';
                 const quoteEnd = closeQuote ? `<span class="cm-quote-style">${closeQuote}</span>` : '';
@@ -808,22 +831,18 @@ const formattedContent = getProcessedContent
             });
         }
 
-        // --- DIALOGUE PROCESSING (WITH SELECTABLE STYLES) ---
         if (enableDialogue) {
             const quoteClass = hideQuotes ? 'quote-mark hidden' : 'quote-mark';
-            
-            // Generate Regex based on selected style
             let quoteRegex;
             if (selectedQuoteStyle === 'guillemets') {
                 quoteRegex = /(«)([\s\S]*?)(»)/g;
             } else if (selectedQuoteStyle === 'curly') {
-                quoteRegex = /([“])([\s\S]*?)([”])/g; // Note: using [] to escape
+                quoteRegex = /([“])([\s\S]*?)([”])/g; 
             } else if (selectedQuoteStyle === 'straight') {
                 quoteRegex = /(")([\s\S]*?)(")/g;
             } else if (selectedQuoteStyle === 'single') {
                 quoteRegex = /(['‘])([\s\S]*?)(['’])/g;
             } else {
-                // 'all'
                 quoteRegex = /([“"«])([\s\S]*?)([”"»])/g;
             }
 
@@ -859,14 +878,14 @@ const publisherBanner = `
 </div>
 `;
 
-const commentsButton = `
+const commentsButton = !isOfflineMode ? `
 <div class="comments-btn-container">
     <button class="comments-btn" id="commentsBtn">
         <span class="icon">💬</span>
         <span>عرض التعليقات (${commentCount})</span>
     </button>
 </div>
-`;
+` : '';
 
 return `
   <!DOCTYPE html>
@@ -885,22 +904,18 @@ return `
       }
       .container { padding: 25px 20px 120px 20px; width: 100%; max-width: 800px; margin: 0 auto; }
       
-      /* --- APP UI TITLE --- */
       .title { 
         font-size: ${fontSize + 8}px; font-weight: bold; margin-bottom: 20px; 
         color: ${bgColor === '#fff' ? '#000' : '#fff'}; 
-        /* Removed border-bottom from title to use separate divider */
         padding-bottom: 10px; font-family: ${fontFamily.family};
-        text-align: right; /* 🔥 CHANGED ALIGNMENT AS REQUESTED */
+        text-align: right; 
       }
 
-      /* 🔥 THE GLOBAL DIVIDER CLASS 🔥 */
       ${dividerCSS}
 
       .content-area { font-size: ${fontSize}px; text-align: justify; word-wrap: break-word; }
       p { margin-bottom: 1.5em; }
       
-      /* --- Dynamic Custom Styles --- */
       .cm-dialogue-text { 
           color: ${enableDialogue ? dialogueColor : 'inherit'}; 
           font-size: ${dialogueSize}%;
@@ -935,13 +950,11 @@ return `
   </head>
   <body>
     <div class="container" id="clickable-area">
-      <!-- APP INTERFACE TITLE (العنوان في تصميم القارئ) -->
       <div class="title">${chapter.title}</div>
       ${dividerHTML}
       
       ${startHTML}
       
-      <!-- INTERNAL TEXT CONTENT (نص الفصل مع الخطوط) -->
       <div class="content-area">${formattedContent}</div>
       
       ${endHTML}
@@ -977,14 +990,13 @@ const onMessage = (event) => {
         } else if (msg === 'openComments') {
             setShowComments(true);
         } else if (msg === 'openProfile') {
-            if (authorProfile) {
+            if (authorProfile && !isOfflineMode) {
                 navigation.push('UserProfile', { userId: authorProfile._id });
             }
         }
     }
 };
 
-// ... (Existing Render Functions for Drawers remain same) ...
 const renderFolderItem = ({ item }) => (
     <TouchableOpacity style={styles.drawerItem} onPress={() => openFolder(item.id)}>
         <View style={{flexDirection: 'row', alignItems: 'center'}}>
@@ -1054,6 +1066,19 @@ return (
 );
 }
 
+// Helper to determine subtitle text (Online vs Offline)
+const getHeaderSubtitle = () => {
+    if (availableChapters) {
+        // Offline / Downloaded context
+        // Find position of current chapter in the downloaded list
+        const sorted = [...availableChapters].sort((a,b) => a - b);
+        const index = sorted.indexOf(parseInt(chapterId));
+        return `الفصل ${index + 1} من ${sorted.length}`;
+    } else {
+        return `الفصل ${chapterId} من ${realTotalChapters > 0 ? realTotalChapters : '؟'}`;
+    }
+};
+
 const renderAndroidContent = () => (
   <View style={{ flex: 1 }}>
     <FlatList
@@ -1066,7 +1091,7 @@ const renderAndroidContent = () => (
       ListHeaderComponent={() => (
         <TouchableOpacity activeOpacity={1} onPress={toggleMenu}>
           <Text style={[styles.androidTitle, { color: textColor, fontSize: fontSize + 8, fontFamily: fontFamily.id === 'Cairo' || fontFamily.id === 'Amiri' ? fontFamily.id : undefined }]}>
-            {chapter.title}
+            {chapter ? chapter.title : ''}
           </Text>
         </TouchableOpacity>
       )}
@@ -1088,13 +1113,15 @@ const renderAndroidContent = () => (
       ListFooterComponent={() => (
         <View style={{ marginTop: 30 }}>
           {authorProfile && (
-            <TouchableOpacity onPress={() => navigation.push('UserProfile', { userId: authorProfile._id })} style={styles.androidAuthorCard}>
+            <TouchableOpacity onPress={() => !isOfflineMode && navigation.push('UserProfile', { userId: authorProfile._id })} style={styles.androidAuthorCard}>
               <Text style={{ color: '#fff', fontWeight: 'bold' }}>الناشر: {authorProfile.name}</Text>
             </TouchableOpacity>
           )}
-          <TouchableOpacity onPress={() => setShowComments(true)} style={[styles.androidCommentBtn, { borderColor: textColor }]}>
-            <Text style={{ color: textColor }}>عرض التعليقات ({commentCount})</Text>
-          </TouchableOpacity>
+          {!isOfflineMode && (
+              <TouchableOpacity onPress={() => setShowComments(true)} style={[styles.androidCommentBtn, { borderColor: textColor }]}>
+                <Text style={{ color: textColor }}>عرض التعليقات ({commentCount})</Text>
+              </TouchableOpacity>
+          )}
           <TouchableOpacity style={{height: 100}} onPress={toggleMenu} />
         </View>
       )}
@@ -1111,8 +1138,8 @@ return (
     <View style={styles.topBarContent}>
       <TouchableOpacity onPress={() => navigation.goBack()} style={styles.iconButton}><Ionicons name="arrow-forward" size={26} color="#fff" /></TouchableOpacity>
       <View style={styles.headerInfo}>
-        <Text style={styles.headerTitle} numberOfLines={1}>{chapter.title}</Text>
-        <Text style={styles.headerSubtitle}>الفصل {chapterId} من {realTotalChapters > 0 ? realTotalChapters : '؟'}</Text>
+        <Text style={styles.headerTitle} numberOfLines={1}>{chapter ? chapter.title : `فصل ${chapterId}`}</Text>
+        <Text style={styles.headerSubtitle}>{getHeaderSubtitle()}</Text>
       </View>
     </View>
   </Animated.View>
@@ -1158,8 +1185,7 @@ return (
       <View style={styles.navigationGroup}>
         {/* Previous */}
         <TouchableOpacity 
-            style={[styles.navButton, styles.prevButton, { opacity: chapterId <= 1 ? 0.5 : 1 }]} 
-            disabled={chapterId <= 1} 
+            style={[styles.navButton, styles.prevButton]} 
             onPress={() => navigateNextPrev(-1)}
         >
           <Ionicons name="chevron-forward" size={20} color="#fff" />
@@ -1168,8 +1194,7 @@ return (
 
         {/* Next */}
         <TouchableOpacity 
-            style={[styles.navButton, styles.nextButton, { opacity: (realTotalChapters > 0 && chapterId >= realTotalChapters) ? 0.5 : 1 }]} 
-            disabled={realTotalChapters > 0 && chapterId >= realTotalChapters} 
+            style={[styles.navButton, styles.nextButton]} 
             onPress={() => navigateNextPrev(1)}
         >
           <Text style={styles.nextText}>التالي</Text>
@@ -1196,6 +1221,7 @@ return (
           </Animated.View>
 
           {/* Right Drawer (Replacements OR Cleaner OR Copyright) */}
+          {!isOfflineMode && (
           <Animated.View style={[styles.drawerContent, { right: 0, borderLeftWidth: 1, borderLeftColor: '#333', paddingTop: insets.top + 20, paddingBottom: insets.bottom + 20, transform: [{ translateX: slideAnimRight }] }]}>
               {drawerMode === 'replacements' && (
                   <>
@@ -1363,7 +1389,6 @@ return (
                                             onPress={() => setCopyrightStyle(prev => ({...prev, alignment: align}))}
                                           >
                                               <Ionicons name={`options-outline`} size={16} color={copyrightStyle.alignment === align ? '#fff' : '#666'} /> 
-                                              {/* Using generic icon as exact align icons vary in names */}
                                           </TouchableOpacity>
                                       ))}
                                   </View>
@@ -1411,10 +1436,10 @@ return (
                   </>
               )}
           </Animated.View>
+          )}
       </View>
   )}
 
-  {/* Folder Name Modal */}
   <Modal visible={showFolderModal} transparent animationType="fade" onRequestClose={() => setShowFolderModal(false)}>
       <View style={styles.modalOverlay}>
           <View style={styles.modalContent}>
@@ -1467,6 +1492,7 @@ return (
                             <Text style={styles.cardSub}>الخط، الحجم، الألوان</Text>
                         </TouchableOpacity>
 
+                        {!isOfflineMode && (
                         <TouchableOpacity style={styles.settingsCard} onPress={() => openRightDrawer('replacements')}>
                             <View style={[styles.cardIcon, { backgroundColor: '#4a7cc7' }]}>
                                 <Ionicons name="swap-horizontal-outline" size={32} color="#fff" />
@@ -1474,8 +1500,9 @@ return (
                             <Text style={styles.cardTitle}>استبدال الكلمات</Text>
                             <Text style={styles.cardSub}>تغيير كلمات داخل الفصل</Text>
                         </TouchableOpacity>
+                        )}
 
-                        {isAdmin && (
+                        {!isOfflineMode && isAdmin && (
                             <>
                                 <TouchableOpacity style={[styles.settingsCard, {borderColor: '#b91c1c'}]} onPress={() => openRightDrawer('cleaner')}>
                                     <View style={[styles.cardIcon, { backgroundColor: '#b91c1c' }]}>
