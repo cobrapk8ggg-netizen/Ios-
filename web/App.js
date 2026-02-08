@@ -1,6 +1,4 @@
 
-
-
 import React, { useContext, useEffect, useState, useRef, createContext } from 'react';
 import { NavigationContainer, DarkTheme, useNavigation } from '@react-navigation/native';
 import { createNativeStackNavigator } from '@react-navigation/native-stack';
@@ -50,6 +48,9 @@ import ContactUsScreen from './src/screens/ContactUsScreen';
 import AboutAppScreen from './src/screens/AboutAppScreen';
 import DownloadsScreen from './src/screens/DownloadsScreen'; // 🔥 IMPORTED
 
+import ChapterTitleFixerScreen from './src/screens/ChapterTitleFixerScreen'; // Hub
+import ChapterTitleFixerSelectionScreen from './src/screens/ChapterTitleFixerSelectionScreen'; // New Selection Screen
+
 import TranslatorHubScreen from './src/screens/TranslatorHubScreen';
 import EnglishNovelsSelectionScreen from './src/screens/EnglishNovelsSelectionScreen';
 import TranslationJobDetailScreen from './src/screens/TranslationJobDetailScreen';
@@ -69,7 +70,7 @@ const DRAWER_WIDTH = width * 0.75;
 
 export const DrawerContext = createContext();
 
-// --- 1. مكون القائمة الجانبية (الزجاجي المحدث) ---
+// ... (Rest of Drawer Logic unchanged) ...
 const CustomSideDrawer = ({ isOpen, onClose, navigation }) => {
   const { userInfo } = useContext(AuthContext);
   const slideAnim = useRef(new Animated.Value(DRAWER_WIDTH)).current;
@@ -162,7 +163,6 @@ const CustomSideDrawer = ({ isOpen, onClose, navigation }) => {
 
             {/* ✅ القسم الثاني: التنزيلات و الإعدادات */}
             <View style={styles.drawerItems}>
-                {/* 🔥 UPDATED: Downloads button is now standard WHITE */}
                 <TouchableOpacity style={styles.drawerItem} onPress={() => navigateTo('Downloads')}>
                     <Ionicons name="cloud-download-outline" size={24} color="#fff" />
                     <Text style={styles.drawerLabel}>التنزيلات</Text>
@@ -194,7 +194,6 @@ const CustomSideDrawer = ({ isOpen, onClose, navigation }) => {
                 </TouchableOpacity>
             </View>
             
-            {/* هامش سفلي لضمان ظهور كل العناصر عند التمرير */}
             <View style={{ height: 40 }} />
         </ScrollView>
 
@@ -207,7 +206,8 @@ const CustomSideDrawer = ({ isOpen, onClose, navigation }) => {
   );
 };
 
-// --- 2. إعداد التبويبات المخفية (الحل لمشكلة إعادة التحميل) ---
+// ... (MainTabs and MainLayout unchanged) ...
+
 function MainTabs() {
   return (
     <Tab.Navigator
@@ -224,7 +224,6 @@ function MainTabs() {
   );
 }
 
-// --- 3. حاوية التطبيق الرئيسية ---
 function MainLayout({ children }) {
   const [isDrawerOpen, setIsDrawerOpen] = useState(false);
   const navigation = useNavigation();
@@ -325,6 +324,10 @@ function NavigationRoot() {
                 <Stack.Screen name="AdminMain" component={AdminMainScreen} options={{ animation: 'fade_from_bottom' }} />
                 <Stack.Screen name="BulkUpload" component={BulkUploadScreen} options={{ animation: 'slide_from_bottom' }} />
                 <Stack.Screen name="AutoImport" component={AutoImportScreen} options={{ animation: 'slide_from_bottom' }} /> 
+                
+                {/* Updated Title Fixer Route */}
+                <Stack.Screen name="ChapterTitleFixer" component={ChapterTitleFixerScreen} options={{ animation: 'slide_from_bottom' }} />
+                <Stack.Screen name="ChapterTitleFixerSelection" component={ChapterTitleFixerSelectionScreen} options={{ animation: 'slide_from_bottom' }} />
                 
                 {/* Translator Screens */}
                 <Stack.Screen name="TranslatorHub" component={TranslatorHubScreen} options={{ animation: 'slide_from_right' }} />
