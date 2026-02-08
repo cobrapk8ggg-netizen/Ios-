@@ -40,6 +40,7 @@ export default function EnglishNovelsSelectionScreen({ navigation }) {
   // Selection State
   const [selectedNovel, setSelectedNovel] = useState(null);
   const [chapters, setChapters] = useState([]);
+  const [chaptersLoading, setChaptersLoading] = useState(false);
   const [selectionMode, setSelectionMode] = useState('all'); 
   const [selectedChapters, setSelectedChapters] = useState([]);
   const [rangeInput, setRangeInput] = useState('');
@@ -101,11 +102,20 @@ export default function EnglishNovelsSelectionScreen({ navigation }) {
   };
 
   const fetchChapters = async (novelId) => {
-      // Need full data for chapters list when selected
+      setChaptersLoading(true);
+      setChapters([]);
       try {
-          const res = await api.get(`/api/novels/${novelId}`);
-          setChapters(res.data.chapters || []);
-      } catch(e) { console.log(e); }
+          // 🔥 FIX: Use chapters-list endpoint to ensure chapters are fetched
+          const res = await api.get(`/api/novels/${novelId}/chapters-list?limit=10000`);
+          if (res.data) {
+              setChapters(res.data);
+          }
+      } catch(e) { 
+          console.log(e); 
+          showToast("فشل جلب الفصول", "error");
+      } finally {
+          setChaptersLoading(false);
+      }
   };
 
   const handleSelectNovel = (novel) => {
@@ -302,21 +312,25 @@ export default function EnglishNovelsSelectionScreen({ navigation }) {
                                         <Text style={styles.rangeApplyText}>ok</Text>
                                     </TouchableOpacity>
                                 </View>
-                                <FlatList 
-                                    data={chapters}
-                                    keyExtractor={item => item.number.toString()}
-                                    style={{flex:1, marginTop: 10}}
-                                    renderItem={({item}) => (
-                                        <TouchableOpacity 
-                                            style={[styles.chapItem, selectedChapters.includes(item.number) && styles.chapItemActive]}
-                                            onPress={() => toggleChapter(item.number)}
-                                        >
-                                            <Text style={[styles.chapText, selectedChapters.includes(item.number) && {color:'#fff'}]}>
-                                                #{item.number} - {item.title || ''}
-                                            </Text>
-                                        </TouchableOpacity>
-                                    )}
-                                />
+                                {chaptersLoading ? (
+                                    <ActivityIndicator color="#fff" style={{marginTop: 20}} />
+                                ) : (
+                                    <FlatList 
+                                        data={chapters}
+                                        keyExtractor={item => item.number.toString()}
+                                        style={{flex:1, marginTop: 10}}
+                                        renderItem={({item}) => (
+                                            <TouchableOpacity 
+                                                style={[styles.chapItem, selectedChapters.includes(item.number) && styles.chapItemActive]}
+                                                onPress={() => toggleChapter(item.number)}
+                                            >
+                                                <Text style={[styles.chapText, selectedChapters.includes(item.number) && {color:'#fff'}]}>
+                                                    #{item.number} - {item.title || ''}
+                                                </Text>
+                                            </TouchableOpacity>
+                                        )}
+                                    />
+                                )}
                             </View>
                         )}
 
