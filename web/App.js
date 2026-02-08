@@ -1,4 +1,6 @@
 
+
+
 import React, { useContext, useEffect, useState, useRef, createContext } from 'react';
 import { NavigationContainer, DarkTheme, useNavigation } from '@react-navigation/native';
 import { createNativeStackNavigator } from '@react-navigation/native-stack';
@@ -53,6 +55,12 @@ import EnglishNovelsSelectionScreen from './src/screens/EnglishNovelsSelectionSc
 import TranslationJobDetailScreen from './src/screens/TranslationJobDetailScreen';
 import GlossaryManagerScreen from './src/screens/GlossaryManagerScreen';
 import TranslatorSettingsScreen from './src/screens/TranslatorSettingsScreen';
+
+// 🔥 Title Generator Screens
+import TitleGeneratorHubScreen from './src/screens/TitleGeneratorHubScreen';
+import TitleGeneratorSelectionScreen from './src/screens/TitleGeneratorSelectionScreen';
+import TitleGeneratorDetailScreen from './src/screens/TitleGeneratorDetailScreen';
+import TitleGeneratorSettingsScreen from './src/screens/TitleGeneratorSettingsScreen';
 
 const Stack = createNativeStackNavigator();
 const Tab = createBottomTabNavigator(); // إنشاء التبويبات المخفية
@@ -317,11 +325,20 @@ function NavigationRoot() {
                 <Stack.Screen name="AdminMain" component={AdminMainScreen} options={{ animation: 'fade_from_bottom' }} />
                 <Stack.Screen name="BulkUpload" component={BulkUploadScreen} options={{ animation: 'slide_from_bottom' }} />
                 <Stack.Screen name="AutoImport" component={AutoImportScreen} options={{ animation: 'slide_from_bottom' }} /> 
+                
+                {/* Translator Screens */}
                 <Stack.Screen name="TranslatorHub" component={TranslatorHubScreen} options={{ animation: 'slide_from_right' }} />
                 <Stack.Screen name="EnglishNovelsSelection" component={EnglishNovelsSelectionScreen} options={{ animation: 'slide_from_bottom' }} />
                 <Stack.Screen name="TranslationJobDetail" component={TranslationJobDetailScreen} options={{ animation: 'fade_from_bottom' }} />
                 <Stack.Screen name="GlossaryManager" component={GlossaryManagerScreen} options={{ animation: 'slide_from_right' }} />
                 <Stack.Screen name="TranslatorSettings" component={TranslatorSettingsScreen} options={{ animation: 'slide_from_right' }} />
+                
+                {/* Title Generator Screens */}
+                <Stack.Screen name="TitleGeneratorHub" component={TitleGeneratorHubScreen} options={{ animation: 'slide_from_right' }} />
+                <Stack.Screen name="TitleGeneratorSelection" component={TitleGeneratorSelectionScreen} options={{ animation: 'slide_from_bottom' }} />
+                <Stack.Screen name="TitleGeneratorDetail" component={TitleGeneratorDetailScreen} options={{ animation: 'fade_from_bottom' }} />
+                <Stack.Screen name="TitleGeneratorSettings" component={TitleGeneratorSettingsScreen} options={{ animation: 'slide_from_right' }} />
+
                 <Stack.Screen name="UserProfile" component={ProfileScreen} options={{ animation: 'slide_from_right' }} />
             </Stack.Navigator>
         </MainLayout>
