@@ -113,11 +113,16 @@ export default function AdminDashboardScreen({ route, navigation }) {
   const fetchNovelChapters = async (id) => {
       setChaptersLoading(true);
       try {
-          const res = await api.get(`/api/novels/${id}`);
-          if (res.data && res.data.chapters) {
-              setNovelChapters(res.data.chapters);
+          // 🔥 FIX: Use chapters-list endpoint because main endpoint no longer returns chapters array
+          // Setting limit high to get all chapters for management
+          const res = await api.get(`/api/novels/${id}/chapters-list?limit=5000`);
+          if (res.data) {
+              setNovelChapters(res.data);
           }
-      } catch (e) { console.log("Failed to fetch novel chapters", e); } 
+      } catch (e) { 
+          console.log("Failed to fetch novel chapters", e); 
+          showToast("فشل جلب قائمة الفصول", "error");
+      } 
       finally { setChaptersLoading(false); }
   };
 
@@ -845,7 +850,7 @@ export default function AdminDashboardScreen({ route, navigation }) {
                                 )}
                             </TouchableOpacity>
                             <TouchableOpacity style={[styles.mainBtn, {marginTop: 20}]} onPress={handleBulkUpload} disabled={loading || !selectedFile}>
-                                {loading ? <ActivityIndicator color="#fff" /> : <Text style={styles.btnText}>بدء المعالجة</Text>}
+                                {loading ? <ActivityIndicator color="#fff" /> : <Text style={styles.btnText}>بدء المعالجة والنشر</Text>}
                             </TouchableOpacity>
                             {bulkLogs.length > 0 && (
                                 <View style={styles.logsBox}>
