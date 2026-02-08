@@ -1,4 +1,6 @@
 
+
+
 import React, { useState, useRef, useEffect, useMemo, useCallback, useContext } from 'react';
 import {
   View,
@@ -181,6 +183,10 @@ const [hexColorInput, setHexColorInput] = useState('#888888');
 const [copyrightFrequency, setCopyrightFrequency] = useState('always'); 
 const [copyrightEveryX, setCopyrightEveryX] = useState('5');
 
+// 🔥 NEW SEPARATOR SETTINGS 🔥
+const [enableSeparator, setEnableSeparator] = useState(true);
+const [separatorText, setSeparatorText] = useState('________________________________________');
+
 const [drawerMode, setDrawerMode] = useState('none'); 
 const slideAnim = useRef(new Animated.Value(-DRAWER_WIDTH)).current; 
 const slideAnimRight = useRef(new Animated.Value(DRAWER_WIDTH)).current; 
@@ -240,6 +246,10 @@ const fetchCopyrights = async () => {
         }
         if (res.data.frequency) setCopyrightFrequency(res.data.frequency);
         if (res.data.everyX) setCopyrightEveryX(res.data.everyX.toString());
+        
+        // Load Separator Settings
+        if (res.data.chapterSeparatorText) setSeparatorText(res.data.chapterSeparatorText);
+        if (res.data.enableChapterSeparator !== undefined) setEnableSeparator(res.data.enableChapterSeparator);
     } catch (e) {}
 };
 
@@ -251,7 +261,9 @@ const handleSaveCopyrights = async () => {
             endText: copyrightEndText,
             styles: copyrightStyle,
             frequency: copyrightFrequency,
-            everyX: parseInt(copyrightEveryX) || 5
+            everyX: parseInt(copyrightEveryX) || 5,
+            chapterSeparatorText: separatorText, // Save separator text
+            enableChapterSeparator: enableSeparator // Save toggle
         });
         showToast("تم حفظ الحقوق والإعدادات بنجاح", "success");
         fetchChapter();
@@ -1415,6 +1427,31 @@ return (
                               onChangeText={setCopyrightStartText} 
                               multiline
                           />
+                          
+                          {/* 🔥 NEW: Chapter Separator Control */}
+                          <View style={{marginBottom: 20, borderTopWidth: 1, borderTopColor: '#333', paddingTop: 20}}>
+                              <View style={styles.toggleRow}>
+                                  <Switch 
+                                      value={enableSeparator} 
+                                      onValueChange={setEnableSeparator}
+                                      trackColor={{ false: "#333", true: "#4a7cc7" }}
+                                      thumbColor={"#fff"}
+                                  />
+                                  <Text style={[styles.toggleLabel, {fontWeight: 'bold'}]}>تفعيل الخط الفاصل تحت العنوان</Text>
+                              </View>
+                              <Text style={{color: '#888', fontSize: 10, textAlign: 'right', marginBottom: 10}}>
+                                  سيتم وضعه فقط تحت أول سطر إذا كان يحتوي على كلمة "الفصل" أو "Chapter".
+                              </Text>
+                              
+                              <Text style={styles.listLabel}>نص الخط الفاصل</Text>
+                              <TextInput 
+                                  style={[styles.textInput, {textAlign: 'center', letterSpacing: 2}]} 
+                                  placeholder="__________________" 
+                                  placeholderTextColor="#666" 
+                                  value={separatorText} 
+                                  onChangeText={setSeparatorText} 
+                              />
+                          </View>
 
                           <Text style={styles.listLabel}>سيظهر هذا النص في نهاية كل فصل</Text>
                           <TextInput 
