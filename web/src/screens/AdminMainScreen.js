@@ -204,6 +204,14 @@ export default function AdminMainScreen({ navigation }) {
                     color="#06b6d4" 
                     onPress={() => navigation.navigate('TranslatorHub')}
                 />
+                {/* 🔥 NEW BUTTON FOR TITLE GENERATOR */}
+                <DashboardButton 
+                    title="مولد العناوين AI" 
+                    subtitle="توليد عناوين للفصول تلقائياً"
+                    icon="text" 
+                    color="#10b981" 
+                    onPress={() => navigation.navigate('TitleGeneratorHub')}
+                />
                 <DashboardButton 
                     title="الاستيراد الآلي (Scraper)" 
                     subtitle="سحب الروايات من المواقع الخارجية"
@@ -229,7 +237,7 @@ export default function AdminMainScreen({ navigation }) {
                     color="#3b82f6" 
                     onPress={() => navigation.navigate('Management')}
                 />
-                {/* 🔥 NEW BUTTON 🔥 */}
+                {/* 🔥 TRANSFER BUTTON */}
                 <DashboardButton 
                     title="نقل ملكية الكل" 
                     subtitle="نقل جميع روايات التطبيق لمستخدم واحد"
