@@ -1,4 +1,6 @@
 
+
+
 import React, { useContext, useEffect, useState } from 'react';
 import {
   View,
@@ -262,6 +264,17 @@ export default function AdminMainScreen({ navigation }) {
                     icon="add-circle" 
                     color="#10b981" 
                     onPress={() => navigation.navigate('AdminDashboard')}
+                />
+            </View>
+
+            <Text style={styles.sectionTitle}>أدوات الصيانة</Text>
+            <View style={styles.grid}>
+                <DashboardButton 
+                    title="مستخرج العناوين" 
+                    subtitle="استخراج العناوين من داخل نص الفصول"
+                    icon="hammer" 
+                    color="#ff6b6b" 
+                    onPress={() => navigation.navigate('ChapterTitleFixer')}
                 />
             </View>
 
