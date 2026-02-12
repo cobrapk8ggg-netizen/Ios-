@@ -40,11 +40,12 @@ const formatNumber = (num) => {
     return num.toString();
 };
 
-const getStatusColor = (status) => {
+// 🔥 Updated Status Colors (Text Only)
+const getStatusTextColor = (status) => {
     switch (status) {
-        case 'مكتملة': return '#27ae60';
-        case 'متوقفة': return '#c0392b';
-        default: return '#8e44ad';
+        case 'مكتملة': return '#27ae60'; // Dark Green
+        case 'متوقفة': return '#c0392b'; // Dark Red
+        default: return '#2980b9';       // Dark Blue (Ongoing)
     }
 };
 
@@ -574,6 +575,9 @@ export default function NovelDetailScreen({ route, navigation }) {
   ];
   const uniqueTags = [...new Set(allTags)];
 
+  const statusText = fullNovel.status || 'مستمرة';
+  const statusColor = getStatusTextColor(statusText);
+
   return (
     <View style={styles.container}>
       <StatusBar barStyle="light-content" />
@@ -636,9 +640,10 @@ export default function NovelDetailScreen({ route, navigation }) {
         </Animated.View>
 
         <View style={styles.contentContainer}>
+          {/* 🔥 Updated Status Badge Style */}
           <View style={styles.statusBadgeContainer}>
-            <View style={[styles.statusBadge, { backgroundColor: getStatusColor(fullNovel.status) }]}>
-                <Text style={styles.statusText}>{fullNovel.status || 'مستمرة'}</Text>
+            <View style={styles.statusBadge}>
+                <Text style={[styles.statusText, {color: statusColor}]}>{statusText}</Text>
             </View>
           </View>
 
@@ -839,8 +844,16 @@ const styles = StyleSheet.create({
   coverGradient: { position: 'absolute', bottom: 0, left: 0, right: 0, height: '40%' },
   contentContainer: { marginTop: -40, paddingHorizontal: 20 },
   statusBadgeContainer: { alignItems: 'center', marginBottom: 10 },
-  statusBadge: { paddingHorizontal: 12, paddingVertical: 4, borderRadius: 12 },
-  statusText: { color: '#fff', fontSize: 12, fontWeight: 'bold' },
+  // 🔥 Modified Status Badge Style
+  statusBadge: { 
+      paddingHorizontal: 12, 
+      paddingVertical: 4, 
+      borderRadius: 8, 
+      backgroundColor: 'rgba(0,0,0,0.6)', 
+      borderWidth: 1,
+      borderColor: 'rgba(255,255,255,0.1)'
+  },
+  statusText: { fontSize: 12, fontWeight: 'bold' },
   title: { fontSize: 28, fontWeight: 'bold', color: '#fff', textAlign: 'center', marginBottom: 25 },
   statsRow: { flexDirection: 'row', justifyContent: 'center', alignItems: 'center', marginBottom: 20, backgroundColor: '#111', paddingVertical: 15, borderRadius: 16, borderWidth: 1, borderColor: '#222' },
   statItem: { alignItems: 'center', paddingHorizontal: 20 },
