@@ -56,11 +56,12 @@ const getTimeAgo = (date) => {
   return 'الآن';
 };
 
-const getStatusConfig = (status) => {
+// 🔥 Updated Status Colors (Text Only)
+const getStatusTextColor = (status) => {
     switch (status) {
-        case 'مكتملة': return { color: '#27ae60', label: 'مكتملة' };
-        case 'متوقفة': return { color: '#c0392b', label: 'متوقفة' };
-        default: return { color: '#8e44ad', label: 'مستمرة' };
+        case 'مكتملة': return '#27ae60'; // Dark Green
+        case 'متوقفة': return '#c0392b'; // Dark Red
+        default: return '#2980b9';       // Dark Blue (Ongoing)
     }
 };
 
@@ -94,7 +95,9 @@ const HeroCarousel = ({ data, navigation, scrollY }) => {
     });
 
     const renderItem = ({ item }) => {
-        const statusConfig = getStatusConfig(item.status);
+        const statusText = item.status || 'مستمرة';
+        const textColor = getStatusTextColor(statusText);
+
         return (
             <View style={{ width: width, height: 400 }}>
                 <Image 
@@ -110,8 +113,9 @@ const HeroCarousel = ({ data, navigation, scrollY }) => {
                 />
                 <View style={styles.heroContent}>
                     <View style={styles.heroInfoContainer}>
-                         <View style={[styles.tagContainer, { backgroundColor: statusConfig.color, alignSelf: 'flex-end' }]}>
-                            <Text style={styles.tagText}>{statusConfig.label}</Text>
+                         {/* 🔥 Updated Glassy Badge */}
+                         <View style={[styles.tagContainer, { alignSelf: 'flex-end' }]}>
+                            <Text style={[styles.tagText, { color: textColor }]}>{statusText}</Text>
                         </View>
                         <Text style={styles.heroTitle} numberOfLines={2}>{item.title}</Text>
                         <Text style={styles.heroAuthor}>{item.author}</Text>
@@ -667,8 +671,9 @@ const styles = StyleSheet.create({
   heroPosterWrapper: { shadowColor: "#000", shadowOffset: { width: 0, height: 8 }, shadowOpacity: 0.6, shadowRadius: 10, elevation: 12 },
   heroPoster: { width: 140, height: 210, borderRadius: 12, borderWidth: 1, borderColor: 'rgba(255,255,255,0.2)' },
   heroInfoContainer: { flex: 1, marginRight: 20, alignItems: 'flex-end', justifyContent: 'flex-end', height: 210, paddingBottom: 5 },
-  tagContainer: { paddingHorizontal: 10, paddingVertical: 4, borderRadius: 8, marginBottom: 8 },
-  tagText: { color: '#fff', fontWeight: 'bold', fontSize: 11 },
+  // 🔥 Updated Tag Style
+  tagContainer: { paddingHorizontal: 8, paddingVertical: 3, borderRadius: 8, marginBottom: 8, backgroundColor: 'rgba(0,0,0,0.6)', borderWidth: 1, borderColor: 'rgba(255,255,255,0.1)' },
+  tagText: { fontWeight: 'bold', fontSize: 10 },
   heroTitle: { color: '#fff', fontSize: 22, fontWeight: 'bold', textAlign: 'right', marginBottom: 6, lineHeight: 30 },
   heroAuthor: { color: '#ccc', fontSize: 14, textAlign: 'right', marginBottom: 10 },
   heroStats: { flexDirection: 'row-reverse', alignItems: 'center', marginBottom: 15, justifyContent: 'flex-start' },
@@ -687,17 +692,17 @@ const styles = StyleSheet.create({
   imageContainer: { borderRadius: 8, overflow: 'hidden', backgroundColor: '#1A1A1A', marginBottom: 8, position: 'relative' },
   cardImage: { borderRadius: 8 },
   
-  // 🔥 New Rank Badge Styles (Calm Night Colors - Bookmark Style)
+  // 🔥 Rank Badge
   rankBadge: {
       position: 'absolute',
-      top: 0, // Hang from top
+      top: 0, 
       right: 10,
       width: 28,
       height: 36,
       alignItems: 'center',
       justifyContent: 'center',
-      borderBottomLeftRadius: 14, // Curved bottom
-      borderBottomRightRadius: 14, // Curved bottom
+      borderBottomLeftRadius: 14, 
+      borderBottomRightRadius: 14, 
       zIndex: 20,
       shadowColor: "#000",
       shadowOffset: { width: 0, height: 2 },
