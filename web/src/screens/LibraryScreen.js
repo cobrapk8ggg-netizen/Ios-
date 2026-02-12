@@ -103,9 +103,20 @@ export default function LibraryScreen({ navigation }) {
     }
   };
 
+  // 🔥 1. Main Effect: Triggered only by Filters & Pagination (Removed searchQuery)
   useEffect(() => {
       fetchNovels();
-  }, [page, selectedCategory, selectedStatus, selectedSort, searchQuery]);
+  }, [page, selectedCategory, selectedStatus, selectedSort]);
+
+  // 🔥 2. Search Effect: Debounced (Waits for user to stop typing)
+  useEffect(() => {
+      const delayDebounceFn = setTimeout(() => {
+          setPage(1); // Reset to page 1
+          fetchNovels(); // Execute search
+      }, 500); // 500ms delay
+
+      return () => clearTimeout(delayDebounceFn);
+  }, [searchQuery]);
 
   // Reset page when filters change
   useEffect(() => {
@@ -114,15 +125,15 @@ export default function LibraryScreen({ navigation }) {
 
   const handleSearchChange = (text) => {
       setSearchQuery(text);
-      setPage(1); 
+      // Removed setPage(1) here to avoid immediate trigger
   };
 
-  // ✅ الألوان الغامقة للحالة كما طلبت
-  const getStatusColor = (status) => {
+  // ✅ Updated Text Colors
+  const getStatusTextColor = (status) => {
     switch (status) {
-      case 'مكتملة': return '#064e3b'; // أخضر غامق جداً
-      case 'متوقفة': return '#7f1d1d'; // أحمر غامق جداً
-      default: return '#1e3a8a'; // أزرق غامق جداً
+      case 'مكتملة': return '#27ae60'; // Dark Green
+      case 'متوقفة': return '#c0392b'; // Dark Red
+      default: return '#2980b9';       // Dark Blue (Ongoing)
     }
   };
 
@@ -183,7 +194,11 @@ export default function LibraryScreen({ navigation }) {
       </Modal>
   );
 
-  const renderNovelItem = ({ item }) => (
+  const renderNovelItem = ({ item }) => {
+    const statusText = item.status || 'مستمرة';
+    const textColor = getStatusTextColor(statusText);
+
+    return (
     <TouchableOpacity
       style={styles.novelCard}
       onPress={() => navigation.navigate('NovelDetail', { novel: item })}
@@ -197,8 +212,9 @@ export default function LibraryScreen({ navigation }) {
             transition={300}
             cachePolicy="memory-disk"
           />
-          <View style={[styles.statusBadge, { backgroundColor: getStatusColor(item.status) }]}>
-              <Text style={styles.statusText}>{item.status || 'مستمرة'}</Text>
+          {/* 🔥 Updated Status Badge Style */}
+          <View style={styles.statusBadge}>
+              <Text style={[styles.statusText, { color: textColor }]}>{statusText}</Text>
           </View>
       </View>
       
@@ -217,7 +233,8 @@ export default function LibraryScreen({ navigation }) {
           </View>
       </View>
     </TouchableOpacity>
-  );
+    );
+  };
 
   const renderPagination = () => {
       if (totalPages <= 1) return null;
@@ -262,14 +279,25 @@ export default function LibraryScreen({ navigation }) {
       );
   };
 
-  const renderHeader = () => (
-      <View>
-          <View style={styles.header}>
+  return (
+    <View style={styles.container}>
+      <StatusBar barStyle="light-content" />
+      <ImageBackground 
+        source={require('../../assets/adaptive-icon.png')} 
+        style={styles.bgImage}
+        blurRadius={20}
+      >
+          <LinearGradient colors={['rgba(0,0,0,0.6)', '#000000']} style={StyleSheet.absoluteFill} />
+      </ImageBackground>
+
+      <SafeAreaView style={{flex: 1}} edges={['top']}>
+        {/* --- FIXED HEADER & SEARCH SECTION --- */}
+        <View style={styles.header}>
             <Text style={styles.headerTitle}>المكتبة</Text>
             <Text style={styles.headerSubtitle}>تصفح جميع الروايات</Text>
-          </View>
+        </View>
 
-          <View style={styles.searchBarContainer}>
+        <View style={styles.searchBarContainer}>
             <Ionicons name="search" size={20} color="#666" style={{marginLeft: 10}} />
             <TextInput
                 style={styles.searchInput}
@@ -283,28 +311,15 @@ export default function LibraryScreen({ navigation }) {
                     <Ionicons name="close-circle" size={18} color="#666" />
                 </TouchableOpacity>
             )}
-          </View>
+        </View>
 
-          <View style={styles.filterContainer}>
-              {renderFilterButton('الترتيب', 'sort', selectedSort, SORT_OPTIONS)}
-              {renderFilterButton('التصنيف', 'category', selectedCategory, categoriesList)}
-              {renderFilterButton('الحالة', 'status', selectedStatus, INITIAL_STATUS_OPTIONS)}
-          </View>
-      </View>
-  );
+        <View style={styles.filterContainer}>
+            {renderFilterButton('الترتيب', 'sort', selectedSort, SORT_OPTIONS)}
+            {renderFilterButton('التصنيف', 'category', selectedCategory, categoriesList)}
+            {renderFilterButton('الحالة', 'status', selectedStatus, INITIAL_STATUS_OPTIONS)}
+        </View>
+        {/* ------------------------------------- */}
 
-  return (
-    <View style={styles.container}>
-      <StatusBar barStyle="light-content" />
-      <ImageBackground 
-        source={require('../../assets/adaptive-icon.png')} 
-        style={styles.bgImage}
-        blurRadius={20}
-      >
-          <LinearGradient colors={['rgba(0,0,0,0.6)', '#000000']} style={StyleSheet.absoluteFill} />
-      </ImageBackground>
-
-      <SafeAreaView style={{flex: 1}} edges={['top']}>
         {loading ? (
             <View style={styles.loadingContainer}>
                 <ActivityIndicator size="large" color="#fff" />
@@ -318,7 +333,6 @@ export default function LibraryScreen({ navigation }) {
                 key={numColumns} 
                 contentContainerStyle={styles.listContent}
                 columnWrapperStyle={[styles.columnWrapper, { flexDirection: 'row-reverse' }]}
-                ListHeaderComponent={renderHeader}
                 ListFooterComponent={renderPagination}
                 ListEmptyComponent={() => (
                     <View style={styles.emptyContainer}>
@@ -438,17 +452,20 @@ const styles = StyleSheet.create({
       width: '100%',
       height: '100%',
   },
+  // 🔥 Modified Status Badge Style
   statusBadge: {
       position: 'absolute',
       top: 8,
       right: 8,
       paddingHorizontal: 8,
-      paddingVertical: 4,
-      borderRadius: 6,
+      paddingVertical: 3, // Smaller vertical padding
+      borderRadius: 8,
+      backgroundColor: 'rgba(0,0,0,0.6)', // Glassy Black
+      borderWidth: 1,
+      borderColor: 'rgba(255,255,255,0.1)'
   },
   statusText: {
-      color: '#fff',
-      fontSize: 10,
+      fontSize: 10, // Slightly smaller text
       fontWeight: 'bold',
   },
   cardInfo: {
