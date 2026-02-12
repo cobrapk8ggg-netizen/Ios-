@@ -100,16 +100,19 @@ export default function CategoryScreen({ route, navigation }) {
       }
   };
 
-  const getStatusColor = (status) => {
+  // 🔥 Updated Text Colors
+  const getStatusTextColor = (status) => {
     switch (status) {
-      case 'مكتملة': return '#064e3b';
-      case 'متوقفة': return '#7f1d1d';
-      default: return '#1e3a8a';
+      case 'مكتملة': return '#27ae60'; // Dark Green
+      case 'متوقفة': return '#c0392b'; // Dark Red
+      default: return '#2980b9';       // Dark Blue (Ongoing)
     }
   };
 
   const renderNovelItem = ({ item }) => {
     const sourceName = getSourceName(item.sourceUrl);
+    const statusText = item.status || 'مستمرة';
+    const textColor = getStatusTextColor(statusText);
     
     return (
       <TouchableOpacity
@@ -125,8 +128,9 @@ export default function CategoryScreen({ route, navigation }) {
               transition={300}
               cachePolicy="memory-disk"
             />
-            <View style={[styles.statusBadge, { backgroundColor: getStatusColor(item.status) }]}>
-                <Text style={styles.statusText}>{item.status || 'مستمرة'}</Text>
+            {/* 🔥 Updated Status Badge Style */}
+            <View style={styles.statusBadge}>
+                <Text style={[styles.statusText, { color: textColor }]}>{statusText}</Text>
             </View>
         </View>
         
@@ -300,16 +304,19 @@ const styles = StyleSheet.create({
       width: '100%',
       height: '100%',
   },
+  // 🔥 Modified Status Badge Style
   statusBadge: {
       position: 'absolute',
       top: 8,
       right: 8,
       paddingHorizontal: 8,
-      paddingVertical: 4,
-      borderRadius: 6,
+      paddingVertical: 3, 
+      borderRadius: 8,
+      backgroundColor: 'rgba(0,0,0,0.6)', // Glassy Black
+      borderWidth: 1,
+      borderColor: 'rgba(255,255,255,0.1)'
   },
   statusText: {
-      color: '#fff',
       fontSize: 10,
       fontWeight: 'bold',
   },
