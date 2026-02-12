@@ -27,6 +27,7 @@ import { useToast } from '../context/ToastContext';
 import CommentsSection from '../components/CommentsSection'; 
 import { saveOfflineNovel, saveOfflineChapter, removeOfflineChapter, getOfflineNovelDetails } from '../services/offlineStorage';
 import CustomAlert from '../components/CustomAlert';
+import downloadQueue from '../services/DownloadQueue'; // 🔥 IMPORTED QUEUE SERVICE
 
 const { width, height } = Dimensions.get('window');
 const CHAPTERS_PER_PAGE = 25; 
@@ -65,6 +66,8 @@ export default function NovelDetailScreen({ route, navigation }) {
   );
   
   const [chapters, setChapters] = useState([]);
+  // 🔥 New: Store ALL offline chapters to support pagination locally
+  const [allOfflineChapters, setAllOfflineChapters] = useState([]);
   
   // Independent Loading States
   const [loadingStatus, setLoadingStatus] = useState(true);
@@ -86,7 +89,9 @@ export default function NovelDetailScreen({ route, navigation }) {
 
   // Download State
   const [downloadedChapters, setDownloadedChapters] = useState([]); 
-  const [downloadingChapter, setDownloadingChapter] = useState(null); 
+  // 🔥 Replaced simple downloadingChapter state with queue awareness
+  const [queueMap, setQueueMap] = useState({}); 
+
   const [alertVisible, setAlertVisible] = useState(false);
   const [alertConfig, setAlertConfig] = useState({});
 
@@ -101,6 +106,20 @@ export default function NovelDetailScreen({ route, navigation }) {
 
   // 🔥 2. Parallel Fetching on Mount
   useEffect(() => {
+      // 🔥 Init Download Queue Listener
+      downloadQueue.init();
+      const unsubscribeQueue = downloadQueue.subscribe((currentQueue) => {
+          const map = {};
+          currentQueue.forEach(item => {
+              if (item.novelId === novelId) {
+                  map[item.chapterNumber] = item.status;
+              }
+          });
+          setQueueMap(map);
+          // Refresh downloaded list implicitly when queue changes (item removed = downloaded/failed)
+          checkDownloads(); 
+      });
+
       if (isOfflineMode) {
           fetchOfflineData();
       } else {
@@ -109,6 +128,8 @@ export default function NovelDetailScreen({ route, navigation }) {
           fetchNovelMetadata();
       }
       checkDownloads();
+
+      return () => unsubscribeQueue();
   }, [novelId]);
 
   // 🔥 3. Fetch Author whenever authorEmail is available (Effect)
@@ -118,21 +139,56 @@ export default function NovelDetailScreen({ route, navigation }) {
       }
   }, [fullNovel.authorEmail]);
 
-  // 🔥 4. Fetch Chapters ONLY when tab is active or page changes
+  // 🔥 4. Fetch Chapters logic (Updated for Offline Mode Pagination)
   useEffect(() => {
-      if (!isOfflineMode && activeTab === 'chapters') {
-          fetchChaptersPage(currentPage);
+      if (activeTab === 'chapters') {
+          if (isOfflineMode) {
+              updateOfflineChaptersList();
+          } else {
+              fetchChaptersPage(currentPage);
+          }
       }
-  }, [activeTab, currentPage, sortDesc]);
+  }, [activeTab, currentPage, sortDesc, isOfflineMode, allOfflineChapters]);
+
+  // 🔥 New Function: Process Offline Chapters (Sort & Paginate Locally)
+  const updateOfflineChaptersList = useCallback(() => {
+      if (!allOfflineChapters || allOfflineChapters.length === 0) {
+          setChapters([]);
+          return;
+      }
+
+      let processed = [...allOfflineChapters];
+      
+      // Sort
+      if (sortDesc) {
+          processed.sort((a, b) => b.number - a.number);
+      } else {
+          processed.sort((a, b) => a.number - b.number);
+      }
+      
+      // Paginate
+      const startIndex = (currentPage - 1) * CHAPTERS_PER_PAGE;
+      const endIndex = startIndex + CHAPTERS_PER_PAGE;
+      const pageItems = processed.slice(startIndex, endIndex);
+
+      setChapters(pageItems);
+  }, [allOfflineChapters, currentPage, sortDesc]);
 
   const fetchOfflineData = async () => {
       setLoadingChapters(true);
       const data = await getOfflineNovelDetails(novelId);
       if (data) {
           setFullNovel(prev => ({ ...prev, ...data }));
-          setChapters(data.chapters || []);
-          // In offline mode, downloaded chapters IS the chapters list
-          setDownloadedChapters(data.chapters.map(c => c.number));
+          const list = data.chapters || [];
+          setAllOfflineChapters(list); // Store Full List
+          setDownloadedChapters(list.map(c => c.number));
+          
+          // 🔥 Calculate Total Pages for Offline
+          setTotalPages(Math.ceil(list.length / CHAPTERS_PER_PAGE) || 1);
+          
+          // Initial Slice (Avoid waiting for useEffect)
+          const sorted = [...list].sort((a, b) => a.number - b.number);
+          setChapters(sorted.slice(0, CHAPTERS_PER_PAGE));
       }
       setLoadingChapters(false);
       setLoadingStatus(false);
@@ -205,7 +261,7 @@ export default function NovelDetailScreen({ route, navigation }) {
 
   // 🔥 Optimized: Fetch Specific Page of Chapters
   const fetchChaptersPage = async (page) => {
-      if (isOfflineMode) return; // Offline handles chapters differently
+      if (isOfflineMode) return; // Handled by updateOfflineChaptersList
 
       setLoadingChapters(true);
       try {
@@ -226,19 +282,10 @@ export default function NovelDetailScreen({ route, navigation }) {
   };
 
   const handleDownloadChapter = async (chapter) => {
-      if (downloadingChapter) return; 
-      setDownloadingChapter(chapter.number);
-      try {
-          const res = await api.get(`/api/novels/${novelId}/chapters/${chapter.number}`);
-          await saveOfflineChapter(novelId, res.data);
-          setDownloadedChapters(prev => [...prev, chapter.number]);
-          showToast("تم تنزيل الفصل", "success");
-          saveOfflineNovel(fullNovel);
-      } catch (e) {
-          showToast("فشل التنزيل", "error");
-      } finally {
-          setDownloadingChapter(null);
-      }
+      if (downloadedChapters.includes(chapter.number)) return;
+      // 🔥 USE QUEUE INSTEAD OF DIRECT API CALL
+      await downloadQueue.add(fullNovel, chapter);
+      showToast("تمت الإضافة لطابور التنزيل", "info");
   };
 
   const confirmRemoveDownload = (chapterNumber) => {
@@ -252,6 +299,20 @@ export default function NovelDetailScreen({ route, navigation }) {
               setAlertVisible(false);
               await removeOfflineChapter(novelId, chapterNumber);
               setDownloadedChapters(prev => prev.filter(n => n !== chapterNumber));
+              // Also update offline cache list if we are in offline mode
+              if (isOfflineMode) {
+                  const newOffline = allOfflineChapters.filter(c => c.number !== chapterNumber);
+                  setAllOfflineChapters(newOffline);
+                  // Refresh UI
+                  const currentStart = (currentPage - 1) * CHAPTERS_PER_PAGE;
+                  const currentEnd = currentStart + CHAPTERS_PER_PAGE;
+                  // Handle if page becomes empty
+                  if (currentStart >= newOffline.length && currentPage > 1) {
+                      setCurrentPage(prev => prev - 1);
+                  } else {
+                      updateOfflineChaptersList();
+                  }
+              }
               showToast("تم الحذف من الجهاز", "success");
           }
       });
@@ -369,7 +430,11 @@ export default function NovelDetailScreen({ route, navigation }) {
     const isRead = readChapters.includes(item.number);
     const dateStr = item.createdAt ? new Date(item.createdAt).toISOString().split('T')[0].replace(/-/g, '/') : '---';
     const isDownloaded = downloadedChapters.includes(item.number);
-    const isDownloading = downloadingChapter === item.number;
+    
+    // 🔥 Check Queue Status
+    const queueStatus = queueMap[item.number];
+    const isDownloading = queueStatus === 'downloading';
+    const isPending = queueStatus === 'pending';
 
     return (
         <View style={styles.chapterRowContainer}>
@@ -411,7 +476,8 @@ export default function NovelDetailScreen({ route, navigation }) {
             </TouchableOpacity>
 
              <View style={styles.adminControls}>
-                 {isDownloading ? (
+                 {/* 🔥 SHOW SPINNER IF DOWNLOADING OR PENDING IN QUEUE */}
+                 {(isDownloading || isPending) ? (
                      <ActivityIndicator size="small" color="#fff" style={{padding: 5}} />
                  ) : isDownloaded ? (
                      <TouchableOpacity onPress={() => confirmRemoveDownload(item.number)} style={{padding: 5}}>
