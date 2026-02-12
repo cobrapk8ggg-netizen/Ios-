@@ -1,3 +1,4 @@
+
 import React, { useState, useEffect } from 'react';
 import {
   View,
@@ -91,7 +92,20 @@ export default function SearchScreen({ navigation }) {
     navigation.navigate('NovelDetail', { novel: item });
   };
 
-  const renderSearchResult = ({ item }) => (
+  // 🔥 Updated Text Colors
+  const getStatusTextColor = (status) => {
+    switch (status) {
+      case 'مكتملة': return '#27ae60'; // Dark Green
+      case 'متوقفة': return '#c0392b'; // Dark Red
+      default: return '#2980b9';       // Dark Blue (Ongoing)
+    }
+  };
+
+  const renderSearchResult = ({ item }) => {
+    const statusText = item.status || 'مستمرة';
+    const textColor = getStatusTextColor(statusText);
+
+    return (
     <TouchableOpacity
       style={styles.novelItem}
       onPress={() => handleResultPress(item)}
@@ -132,15 +146,17 @@ export default function SearchScreen({ navigation }) {
              </View>
           )}
           {item.status && (
-            <View style={[styles.statusTag, item.status === 'متوقفة' ? {borderColor: '#ff4444', backgroundColor: 'rgba(255,68,68,0.2)'} : {}]}>
-              <Ionicons name={item.status === 'مكتملة' ? "checkmark-circle" : "ellipse"} size={12} color={item.status === 'متوقفة' ? '#ff4444' : '#4ade80'} />
-              <Text style={[styles.statusTagText, item.status === 'متوقفة' ? {color: '#ff4444'} : {}]}>{item.status}</Text>
+            // 🔥 Updated Status Badge Style (Uniform Glassy)
+            <View style={styles.statusTag}>
+              <Ionicons name={item.status === 'مكتملة' ? "checkmark-circle" : "ellipse"} size={12} color={textColor} />
+              <Text style={[styles.statusTagText, { color: textColor }]}>{statusText}</Text>
             </View>
           )}
         </View>
       </View>
     </TouchableOpacity>
-  );
+    );
+  };
 
   return (
     <SafeAreaView style={styles.container} edges={['top']}>
@@ -282,20 +298,20 @@ const styles = StyleSheet.create({
     color: '#4a7cc7',
     fontWeight: '600',
   },
+  // 🔥 Modified Status Tag Style
   statusTag: {
     flexDirection: 'row',
     alignItems: 'center',
-    backgroundColor: 'rgba(74, 222, 128, 0.2)',
+    backgroundColor: 'rgba(0,0,0,0.6)', // Glassy Black
     paddingHorizontal: 8,
     paddingVertical: 5,
     borderRadius: 10,
     gap: 4,
     borderWidth: 1,
-    borderColor: '#4ade80',
+    borderColor: 'rgba(255,255,255,0.1)',
   },
   statusTagText: {
     fontSize: 11,
-    color: '#4ade80',
     fontWeight: '600',
   },
 
