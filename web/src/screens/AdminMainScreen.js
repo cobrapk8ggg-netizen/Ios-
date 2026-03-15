@@ -64,9 +64,6 @@ export default function AdminMainScreen({ navigation }) {
   const [searchQuery, setSearchQuery] = useState('');
   const [sortOrder, setSortOrder] = useState('asc'); // 'asc' = أقدم أولاً, 'desc' = أحدث أولاً
 
-  // 🔥 NEW STATE FOR ADD MODAL
-  const [showAddModal, setShowAddModal] = useState(false);
-
   const slideAnim = useRef(new Animated.Value(0)).current;
   const fadeAnim = useRef(new Animated.Value(0)).current;
 
@@ -165,7 +162,6 @@ export default function AdminMainScreen({ navigation }) {
           setNewOriginal('');
           setNewReplacement('');
           setEditingRepId(null);
-          setShowAddModal(false); // إغلاق مودال الإضافة بعد الحفظ
       } catch (e) {
           showToast("فشلت العملية", "error");
       } finally {
@@ -190,21 +186,6 @@ export default function AdminMainScreen({ navigation }) {
       setNewOriginal(item.original);
       setNewReplacement(item.replacement);
       setEditingRepId(item._id);
-      setShowAddModal(true); // فتح مودال الإضافة للتعديل
-  };
-
-  const handleOpenAddModal = () => {
-    setNewOriginal('');
-    setNewReplacement('');
-    setEditingRepId(null);
-    setShowAddModal(true);
-  };
-
-  const handleCloseAddModal = () => {
-    setShowAddModal(false);
-    setNewOriginal('');
-    setNewReplacement('');
-    setEditingRepId(null);
   };
 
   const fetchStats = async () => {
@@ -517,6 +498,76 @@ export default function AdminMainScreen({ navigation }) {
               <View style={styles.glowLine} />
 
               <View style={styles.modalBody}>
+                {/* Input Form - Glass style */}
+                <View style={styles.inputGlassCard}>
+                  <View style={styles.inputRow}>
+                    <View style={styles.inputIconContainer}>
+                      <Ionicons name="text" size={20} color="#aaa" />
+                    </View>
+                    <View style={styles.inputWrapper}>
+                      <Text style={styles.inputLabel}>الكلمة الأصلية</Text>
+                      <TextInput 
+                        style={styles.glassInput}
+                        value={newOriginal}
+                        onChangeText={setNewOriginal}
+                        placeholder="مثال: كلمة سيئة"
+                        placeholderTextColor="rgba(255,255,255,0.3)"
+                        textAlign="right"
+                      />
+                    </View>
+                  </View>
+
+                  <View style={styles.inputRow}>
+                    <View style={styles.inputIconContainer}>
+                      <Ionicons name="swap-horizontal" size={20} color="#aaa" />
+                    </View>
+                    <View style={styles.inputWrapper}>
+                      <Text style={styles.inputLabel}>الاستبدال (اختياري)</Text>
+                      <TextInput 
+                        style={styles.glassInput}
+                        value={newReplacement}
+                        onChangeText={setNewReplacement}
+                        placeholder="مثال: كلمة جيدة"
+                        placeholderTextColor="rgba(255,255,255,0.3)"
+                        textAlign="right"
+                      />
+                    </View>
+                  </View>
+
+                  <TouchableOpacity 
+                    style={[styles.saveButton, editingRepId ? styles.editButton : null]}
+                    onPress={handleSaveReplacement}
+                    disabled={repLoading}
+                    activeOpacity={0.8}
+                  >
+                    <LinearGradient
+                      colors={editingRepId ? ['#555', '#333'] : ['#444', '#222']}
+                      style={styles.gradientButton}
+                      start={{ x: 0, y: 0 }}
+                      end={{ x: 1, y: 0 }}
+                    >
+                      {repLoading ? (
+                        <ActivityIndicator color="#fff" />
+                      ) : (
+                        <>
+                          <Ionicons name={editingRepId ? "create-outline" : "add-circle-outline"} size={22} color="#fff" />
+                          <Text style={styles.saveButtonText}>{editingRepId ? 'تحديث الاستبدال' : 'إضافة استبدال جديد'}</Text>
+                        </>
+                      )}
+                    </LinearGradient>
+                  </TouchableOpacity>
+                  
+                  {editingRepId && (
+                    <TouchableOpacity 
+                      onPress={() => { setEditingRepId(null); setNewOriginal(''); setNewReplacement(''); }} 
+                      style={styles.cancelEditButton}
+                    >
+                      <Ionicons name="close-circle-outline" size={18} color="#aaa" />
+                      <Text style={styles.cancelEditText}>إلغاء التعديل</Text>
+                    </TouchableOpacity>
+                  )}
+                </View>
+
                 {/* Search and Sort Bar */}
                 <View style={styles.searchSortBar}>
                   <View style={styles.searchContainer}>
@@ -553,19 +604,6 @@ export default function AdminMainScreen({ navigation }) {
                   data={filteredAndSortedReplacements}
                   keyExtractor={item => item._id}
                   contentContainerStyle={styles.listContent}
-                  ListHeaderComponent={
-                    <TouchableOpacity style={styles.addButton} onPress={handleOpenAddModal}>
-                      <LinearGradient
-                        colors={['#444', '#222']}
-                        style={styles.gradientAddButton}
-                        start={{ x: 0, y: 0 }}
-                        end={{ x: 1, y: 0 }}
-                      >
-                        <Ionicons name="add-circle-outline" size={22} color="#fff" />
-                        <Text style={styles.addButtonText}>إضافة استبدال جديد</Text>
-                      </LinearGradient>
-                    </TouchableOpacity>
-                  }
                   renderItem={({item, index}) => (
                     <Animated.View style={[styles.replacementItem, { opacity: fadeAnim }]}>
                       <LinearGradient
@@ -605,74 +643,6 @@ export default function AdminMainScreen({ navigation }) {
               </View>
             </Animated.View>
           </Animated.View>
-        </Modal>
-
-        {/* 🔥 ADD REPLACEMENT MODAL (Sub-modal) 🔥 */}
-        <Modal visible={showAddModal} transparent animationType="fade" onRequestClose={handleCloseAddModal}>
-          <View style={styles.subModalOverlay}>
-            <Animated.View style={[styles.subModalContainer, { transform: [{ scale: fadeAnim.interpolate({ inputRange: [0, 1], outputRange: [0.9, 1] }) }] }]}>
-              <LinearGradient
-                colors={['rgba(255,255,255,0.1)', 'rgba(255,255,255,0.02)']}
-                style={StyleSheet.absoluteFill}
-                start={{ x: 0, y: 0 }}
-                end={{ x: 1, y: 1 }}
-              />
-              
-              <View style={styles.subModalHeader}>
-                <Ionicons name={editingRepId ? "create-outline" : "add-circle-outline"} size={28} color="#fff" />
-                <Text style={styles.subModalTitle}>{editingRepId ? 'تعديل استبدال' : 'إضافة استبدال جديد'}</Text>
-              </View>
-
-              <View style={styles.subModalBody}>
-                <View style={styles.inputRow}>
-                  <View style={styles.inputIconContainer}>
-                    <Ionicons name="text" size={20} color="#aaa" />
-                  </View>
-                  <View style={styles.inputWrapper}>
-                    <Text style={styles.inputLabel}>الكلمة الأصلية</Text>
-                    <TextInput 
-                      style={styles.glassInput}
-                      value={newOriginal}
-                      onChangeText={setNewOriginal}
-                      placeholder="مثال: كلمة سيئة"
-                      placeholderTextColor="rgba(255,255,255,0.3)"
-                      textAlign="right"
-                    />
-                  </View>
-                </View>
-
-                <View style={styles.inputRow}>
-                  <View style={styles.inputIconContainer}>
-                    <Ionicons name="swap-horizontal" size={20} color="#aaa" />
-                  </View>
-                  <View style={styles.inputWrapper}>
-                    <Text style={styles.inputLabel}>الاستبدال (اختياري)</Text>
-                    <TextInput 
-                      style={styles.glassInput}
-                      value={newReplacement}
-                      onChangeText={setNewReplacement}
-                      placeholder="مثال: كلمة جيدة"
-                      placeholderTextColor="rgba(255,255,255,0.3)"
-                      textAlign="right"
-                    />
-                  </View>
-                </View>
-
-                <View style={styles.subModalActions}>
-                  <TouchableOpacity style={styles.subModalCancelButton} onPress={handleCloseAddModal}>
-                    <Text style={styles.subModalCancelText}>إلغاء</Text>
-                  </TouchableOpacity>
-                  <TouchableOpacity style={styles.subModalSaveButton} onPress={handleSaveReplacement} disabled={repLoading}>
-                    {repLoading ? (
-                      <ActivityIndicator color="#fff" />
-                    ) : (
-                      <Text style={styles.subModalSaveText}>{editingRepId ? 'تحديث' : 'إضافة'}</Text>
-                    )}
-                  </TouchableOpacity>
-                </View>
-              </View>
-            </Animated.View>
-          </View>
         </Modal>
 
       </SafeAreaView>
@@ -743,7 +713,7 @@ const styles = StyleSheet.create({
   userEmail: { color: '#888', fontSize: 12, textAlign: 'right' },
   closeModalBtn: { marginTop: 20, padding: 12, backgroundColor: '#333', borderRadius: 12, alignItems: 'center' },
 
-  // ========== BLACK & WHITE GLASS MODAL STYLES ==========
+  // ========== NEW BLACK & WHITE GLASS MODAL STYLES ==========
   modalOverlay: {
     flex: 1,
     backgroundColor: 'rgba(0,0,0,0.8)',
@@ -802,6 +772,78 @@ const styles = StyleSheet.create({
     paddingHorizontal: 16,
     paddingBottom: 16,
   },
+  inputGlassCard: {
+    backgroundColor: 'rgba(255,255,255,0.03)',
+    borderRadius: 24,
+    padding: 16,
+    borderWidth: 1,
+    borderColor: 'rgba(255,255,255,0.1)',
+    marginBottom: 20,
+  },
+  inputRow: {
+    flexDirection: 'row-reverse',
+    alignItems: 'center',
+    marginBottom: 16,
+  },
+  inputIconContainer: {
+    width: 40,
+    height: 40,
+    borderRadius: 20,
+    backgroundColor: 'rgba(255,255,255,0.05)',
+    justifyContent: 'center',
+    alignItems: 'center',
+    marginLeft: 12,
+    borderWidth: 1,
+    borderColor: 'rgba(255,255,255,0.1)',
+  },
+  inputWrapper: {
+    flex: 1,
+  },
+  inputLabel: {
+    color: 'rgba(255,255,255,0.4)',
+    fontSize: 12,
+    marginBottom: 4,
+    textAlign: 'right',
+  },
+  glassInput: {
+    backgroundColor: 'rgba(0,0,0,0.5)',
+    borderRadius: 16,
+    padding: 12,
+    color: '#fff',
+    fontSize: 14,
+    borderWidth: 1,
+    borderColor: 'rgba(255,255,255,0.1)',
+    textAlign: 'right',
+  },
+  saveButton: {
+    borderRadius: 20,
+    overflow: 'hidden',
+    marginTop: 8,
+  },
+  gradientButton: {
+    flexDirection: 'row-reverse',
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingVertical: 14,
+    gap: 8,
+  },
+  saveButtonText: {
+    color: '#fff',
+    fontSize: 15,
+    fontWeight: 'bold',
+    letterSpacing: 1,
+  },
+  cancelEditButton: {
+    flexDirection: 'row-reverse',
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginTop: 10,
+    gap: 6,
+  },
+  cancelEditText: {
+    color: '#aaa',
+    fontSize: 13,
+  },
   searchSortBar: {
     flexDirection: 'row-reverse',
     alignItems: 'center',
@@ -848,25 +890,6 @@ const styles = StyleSheet.create({
   },
   listContent: {
     paddingBottom: 10,
-  },
-  addButton: {
-    marginBottom: 16,
-    borderRadius: 20,
-    overflow: 'hidden',
-  },
-  gradientAddButton: {
-    flexDirection: 'row-reverse',
-    alignItems: 'center',
-    justifyContent: 'center',
-    paddingVertical: 14,
-    gap: 8,
-    backgroundColor: '#333', // fallback
-  },
-  addButtonText: {
-    color: '#fff',
-    fontSize: 15,
-    fontWeight: 'bold',
-    letterSpacing: 1,
   },
   replacementItem: {
     borderRadius: 20,
@@ -931,103 +954,5 @@ const styles = StyleSheet.create({
     color: 'rgba(255,255,255,0.2)',
     fontSize: 12,
     marginTop: 4,
-  },
-
-  // ========== SUB MODAL STYLES ==========
-  subModalOverlay: {
-    flex: 1,
-    backgroundColor: 'rgba(0,0,0,0.9)',
-    justifyContent: 'center',
-    alignItems: 'center',
-    padding: 20,
-  },
-  subModalContainer: {
-    width: '90%',
-    backgroundColor: 'rgba(30,30,30,0.9)',
-    borderRadius: 28,
-    borderWidth: 1,
-    borderColor: 'rgba(255,255,255,0.1)',
-    overflow: 'hidden',
-    padding: 20,
-  },
-  subModalHeader: {
-    flexDirection: 'row-reverse',
-    alignItems: 'center',
-    justifyContent: 'center',
-    marginBottom: 20,
-    gap: 8,
-  },
-  subModalTitle: {
-    color: '#fff',
-    fontSize: 18,
-    fontWeight: 'bold',
-    textAlign: 'center',
-  },
-  subModalBody: {
-    gap: 16,
-  },
-  inputRow: {
-    flexDirection: 'row-reverse',
-    alignItems: 'center',
-  },
-  inputIconContainer: {
-    width: 40,
-    height: 40,
-    borderRadius: 20,
-    backgroundColor: 'rgba(255,255,255,0.05)',
-    justifyContent: 'center',
-    alignItems: 'center',
-    marginLeft: 12,
-    borderWidth: 1,
-    borderColor: 'rgba(255,255,255,0.1)',
-  },
-  inputWrapper: {
-    flex: 1,
-  },
-  inputLabel: {
-    color: 'rgba(255,255,255,0.4)',
-    fontSize: 12,
-    marginBottom: 4,
-    textAlign: 'right',
-  },
-  glassInput: {
-    backgroundColor: 'rgba(0,0,0,0.5)',
-    borderRadius: 16,
-    padding: 12,
-    color: '#fff',
-    fontSize: 14,
-    borderWidth: 1,
-    borderColor: 'rgba(255,255,255,0.1)',
-    textAlign: 'right',
-  },
-  subModalActions: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    marginTop: 20,
-    gap: 12,
-  },
-  subModalCancelButton: {
-    flex: 1,
-    padding: 14,
-    borderRadius: 20,
-    backgroundColor: 'rgba(255,255,255,0.1)',
-    alignItems: 'center',
-  },
-  subModalCancelText: {
-    color: '#aaa',
-    fontSize: 15,
-    fontWeight: '600',
-  },
-  subModalSaveButton: {
-    flex: 1,
-    padding: 14,
-    borderRadius: 20,
-    backgroundColor: '#333',
-    alignItems: 'center',
-  },
-  subModalSaveText: {
-    color: '#fff',
-    fontSize: 15,
-    fontWeight: 'bold',
   },
 });
