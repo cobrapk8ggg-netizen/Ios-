@@ -1,7 +1,4 @@
-
-
-
-import React, { useContext, useEffect, useState } from 'react';
+import React, { useContext, useEffect, useState, useRef, useMemo } from 'react';
 import {
   View,
   Text,
@@ -14,19 +11,20 @@ import {
   ImageBackground,
   Modal,
   FlatList,
-  TextInput
+  TextInput,
+  Animated,
+  Easing
 } from 'react-native';
 import { LinearGradient } from 'expo-linear-gradient';
 import { Ionicons } from '@expo/vector-icons';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { AuthContext } from '../context/AuthContext';
-import { useToast } from '../context/ToastContext'; // Import Toast
+import { useToast } from '../context/ToastContext';
 import api from '../services/api';
-import CustomAlert from '../components/CustomAlert'; // Import CustomAlert
+import CustomAlert from '../components/CustomAlert';
 
 const { width } = Dimensions.get('window');
 
-// Glass Container for consistency (Same as AdminDashboard)
 const GlassCard = ({ children, style, onPress }) => (
     <TouchableOpacity 
         style={[styles.glassCard, style]} 
@@ -48,19 +46,166 @@ export default function AdminMainScreen({ navigation }) {
   const [stats, setStats] = useState({ users: 0, novels: 0, views: 0 });
   const [loading, setLoading] = useState(true);
 
-  // Transfer Ownership State
   const [showUserPicker, setShowUserPicker] = useState(false);
   const [usersList, setUsersList] = useState([]);
   const [usersLoading, setUsersLoading] = useState(false);
   const [userSearch, setUserSearch] = useState('');
   
-  // Custom Alert State
   const [alertVisible, setAlertVisible] = useState(false);
   const [alertConfig, setAlertConfig] = useState({});
+
+  // 🔥 GLOBAL REPLACEMENTS STATE 🔥
+  const [showReplacementsModal, setShowReplacementsModal] = useState(false);
+  const [replacementsList, setReplacementsList] = useState([]);
+  const [repLoading, setRepLoading] = useState(false);
+  const [newOriginal, setNewOriginal] = useState('');
+  const [newReplacement, setNewReplacement] = useState('');
+  const [editingRepId, setEditingRepId] = useState(null);
+  const [searchQuery, setSearchQuery] = useState('');
+  const [sortOrder, setSortOrder] = useState('asc'); // 'asc' = أقدم أولاً, 'desc' = أحدث أولاً
+
+  // 🔥 NEW STATE FOR ADD MODAL
+  const [showAddModal, setShowAddModal] = useState(false);
+
+  const slideAnim = useRef(new Animated.Value(0)).current;
+  const fadeAnim = useRef(new Animated.Value(0)).current;
 
   useEffect(() => {
       fetchStats();
   }, []);
+
+  // فلترة وترتيب الاستبدالات حسب الوقت
+  const filteredAndSortedReplacements = useMemo(() => {
+    let filtered = replacementsList.filter(item => 
+      item.original.toLowerCase().includes(searchQuery.toLowerCase()) ||
+      (item.replacement && item.replacement.toLowerCase().includes(searchQuery.toLowerCase()))
+    );
+    
+    // ترتيب زمني باستخدام _id (ObjectId يحتوي على طابع زمني)
+    filtered.sort((a, b) => {
+      if (sortOrder === 'asc') {
+        // أقدم أولاً (a أقدم من b)
+        return a._id.localeCompare(b._id);
+      } else {
+        // أحدث أولاً (b أحدث من a)
+        return b._id.localeCompare(a._id);
+      }
+    });
+    return filtered;
+  }, [replacementsList, searchQuery, sortOrder]);
+
+  const fetchReplacements = async () => {
+      setRepLoading(true);
+      try {
+          const res = await api.get('/api/admin/global-replacements');
+          setReplacementsList(res.data);
+      } catch (e) {
+          showToast("فشل جلب الاستبدالات", "error");
+      } finally {
+          setRepLoading(false);
+      }
+  };
+
+  const handleOpenReplacements = () => {
+      setShowReplacementsModal(true);
+      fetchReplacements();
+      Animated.parallel([
+        Animated.timing(fadeAnim, {
+          toValue: 1,
+          duration: 300,
+          useNativeDriver: true,
+          easing: Easing.out(Easing.ease)
+        }),
+        Animated.spring(slideAnim, {
+          toValue: 1,
+          tension: 65,
+          friction: 11,
+          useNativeDriver: true
+        })
+      ]).start();
+  };
+
+  const handleCloseReplacements = () => {
+      Animated.parallel([
+        Animated.timing(fadeAnim, {
+          toValue: 0,
+          duration: 200,
+          useNativeDriver: true
+        }),
+        Animated.timing(slideAnim, {
+          toValue: 0,
+          duration: 200,
+          useNativeDriver: true
+        })
+      ]).start(() => setShowReplacementsModal(false));
+  };
+
+  const handleSaveReplacement = async () => {
+      if (!newOriginal.trim()) {
+          showToast("الكلمة الأصلية مطلوبة", "error");
+          return;
+      }
+      setRepLoading(true);
+      try {
+          if (editingRepId) {
+              const res = await api.put(`/api/admin/global-replacements/${editingRepId}`, {
+                  original: newOriginal,
+                  replacement: newReplacement
+              });
+              setReplacementsList(res.data.list);
+              showToast("تم التعديل", "success");
+          } else {
+              const res = await api.post('/api/admin/global-replacements', {
+                  original: newOriginal,
+                  replacement: newReplacement
+              });
+              setReplacementsList(res.data.list);
+              showToast("تم الإضافة", "success");
+          }
+          setNewOriginal('');
+          setNewReplacement('');
+          setEditingRepId(null);
+          setShowAddModal(false); // إغلاق مودال الإضافة بعد الحفظ
+      } catch (e) {
+          showToast("فشلت العملية", "error");
+      } finally {
+          setRepLoading(false);
+      }
+  };
+
+  const handleDeleteReplacement = async (id) => {
+      setRepLoading(true);
+      try {
+          const res = await api.delete(`/api/admin/global-replacements/${id}`);
+          setReplacementsList(res.data.list);
+          showToast("تم الحذف", "success");
+      } catch (e) {
+          showToast("فشل الحذف", "error");
+      } finally {
+          setRepLoading(false);
+      }
+  };
+
+  const startEditReplacement = (item) => {
+      setNewOriginal(item.original);
+      setNewReplacement(item.replacement);
+      setEditingRepId(item._id);
+      setShowAddModal(true); // فتح مودال الإضافة للتعديل
+  };
+
+  const handleOpenAddModal = () => {
+    setNewOriginal('');
+    setNewReplacement('');
+    setEditingRepId(null);
+    setShowAddModal(true);
+  };
+
+  const handleCloseAddModal = () => {
+    setShowAddModal(false);
+    setNewOriginal('');
+    setNewReplacement('');
+    setEditingRepId(null);
+  };
 
   const fetchStats = async () => {
       try {
@@ -115,7 +260,6 @@ export default function AdminMainScreen({ navigation }) {
   const performTransfer = async (targetUserId) => {
       setLoading(true); 
       try {
-          // 🔥 Updated URL to match backend fix
           const res = await api.put('/api/admin/ownership/transfer-all', { targetUserId });
           showToast(`تم نقل ${res.data.modifiedCount} رواية بنجاح إلى المالك الجديد`, "success");
       } catch (e) {
@@ -148,7 +292,6 @@ export default function AdminMainScreen({ navigation }) {
     <View style={styles.container}>
       <StatusBar barStyle="light-content" />
       
-      {/* BACKGROUND EXACTLY LIKE ADMIN DASHBOARD */}
       <ImageBackground 
         source={require('../../assets/adaptive-icon.png')} 
         style={styles.bgImage}
@@ -206,7 +349,6 @@ export default function AdminMainScreen({ navigation }) {
                     color="#06b6d4" 
                     onPress={() => navigation.navigate('TranslatorHub')}
                 />
-                {/* 🔥 NEW BUTTON FOR TITLE GENERATOR */}
                 <DashboardButton 
                     title="مولد العناوين AI" 
                     subtitle="توليد عناوين للفصول تلقائياً"
@@ -220,6 +362,31 @@ export default function AdminMainScreen({ navigation }) {
                     icon="planet" 
                     color="#8b5cf6" 
                     onPress={() => navigation.navigate('AutoImport')}
+                />
+            </View>
+
+            <Text style={styles.sectionTitle}>أدوات النشر</Text>
+            <View style={styles.grid}>
+                <DashboardButton 
+                    title="النشر المتعدد (ZIP)" 
+                    subtitle="رفع ملف مضغوط للفصول"
+                    icon="cloud-upload" 
+                    color="#f59e0b" 
+                    onPress={() => navigation.navigate('BulkUpload')}
+                />
+                <DashboardButton 
+                    title="إنشاء عمل جديد" 
+                    subtitle="إضافة رواية جديدة يدوياً"
+                    icon="add-circle" 
+                    color="#10b981" 
+                    onPress={() => navigation.navigate('AdminDashboard')}
+                />
+                <DashboardButton 
+                    title="ناشر نادي الروايات 🚀" 
+                    subtitle="نشر تلقائي للروايات في النادي"
+                    icon="rocket" 
+                    color="#f43f5e" 
+                    onPress={() => navigation.navigate('NadiPublisherHub')}
                 />
             </View>
 
@@ -239,7 +406,6 @@ export default function AdminMainScreen({ navigation }) {
                     color="#3b82f6" 
                     onPress={() => navigation.navigate('Management')}
                 />
-                {/* 🔥 TRANSFER BUTTON */}
                 <DashboardButton 
                     title="نقل ملكية الكل" 
                     subtitle="نقل جميع روايات التطبيق لمستخدم واحد"
@@ -247,23 +413,12 @@ export default function AdminMainScreen({ navigation }) {
                     color="#d946ef" 
                     onPress={handleOpenTransferModal}
                 />
-            </View>
-
-            <Text style={styles.sectionTitle}>أدوات النشر</Text>
-            <View style={styles.grid}>
                 <DashboardButton 
-                    title="النشر المتعدد (ZIP)" 
-                    subtitle="رفع ملف مضغوط للفصول"
-                    icon="cloud-upload" 
-                    color="#f59e0b" 
-                    onPress={() => navigation.navigate('BulkUpload')}
-                />
-                <DashboardButton 
-                    title="إنشاء عمل جديد" 
-                    subtitle="إضافة رواية جديدة يدوياً"
-                    icon="add-circle" 
-                    color="#10b981" 
-                    onPress={() => navigation.navigate('AdminDashboard')}
+                    title="تنقية الفصول (Global)" 
+                    subtitle="استبدال كلمات في جميع الروايات"
+                    icon="color-filter" 
+                    color="#f97316" 
+                    onPress={handleOpenReplacements}
                 />
             </View>
 
@@ -325,6 +480,201 @@ export default function AdminMainScreen({ navigation }) {
             </View>
         </Modal>
 
+        {/* 🔥 GLOBAL REPLACEMENTS MODAL - REDESIGNED - BLACK & WHITE GLASS 🔥 */}
+        <Modal visible={showReplacementsModal} transparent onRequestClose={handleCloseReplacements}>
+          <Animated.View style={[styles.modalOverlay, { opacity: fadeAnim }]}>
+            <Animated.View style={[
+              styles.glassModalContainer,
+              {
+                transform: [
+                  {
+                    translateY: slideAnim.interpolate({
+                      inputRange: [0, 1],
+                      outputRange: [600, 0]
+                    })
+                  }
+                ]
+              }
+            ]}>
+              {/* Close button floating */}
+              <TouchableOpacity style={styles.floatingCloseButton} onPress={handleCloseReplacements}>
+                <Ionicons name="close" size={24} color="#fff" />
+              </TouchableOpacity>
+
+              <LinearGradient
+                colors={['rgba(255,255,255,0.1)', 'rgba(255,255,255,0.02)']}
+                style={StyleSheet.absoluteFill}
+                start={{ x: 0, y: 0 }}
+                end={{ x: 1, y: 1 }}
+              />
+              
+              <View style={styles.modalHeader}>
+                <Ionicons name="color-filter-outline" size={32} color="#fff" />
+                <Text style={styles.modalTitle}>تنقية الفصول العالمية</Text>
+                <Text style={styles.modalSubtitle}>استبدال ذكي في جميع الروايات</Text>
+              </View>
+
+              <View style={styles.glowLine} />
+
+              <View style={styles.modalBody}>
+                {/* Search and Sort Bar */}
+                <View style={styles.searchSortBar}>
+                  <View style={styles.searchContainer}>
+                    <Ionicons name="search" size={18} color="#aaa" />
+                    <TextInput
+                      style={styles.searchInputSmall}
+                      placeholder="بحث في الاستبدالات..."
+                      placeholderTextColor="#666"
+                      value={searchQuery}
+                      onChangeText={setSearchQuery}
+                      textAlign="right"
+                    />
+                  </View>
+                  <TouchableOpacity onPress={() => setSortOrder(sortOrder === 'asc' ? 'desc' : 'asc')} style={styles.sortButton}>
+                    <Ionicons 
+                      name={sortOrder === 'asc' ? "arrow-up" : "arrow-down"} 
+                      size={22} 
+                      color="#fff" 
+                    />
+                  </TouchableOpacity>
+                </View>
+
+                {/* List Header */}
+                <View style={styles.listHeader}>
+                  <Ionicons name="list-outline" size={18} color="#aaa" />
+                  <Text style={styles.listHeaderText}>
+                    الاستبدالات النشطة ({filteredAndSortedReplacements.length}) · 
+                    {sortOrder === 'asc' ? ' الأقدم أولاً' : ' الأحدث أولاً'}
+                  </Text>
+                </View>
+
+                {/* Replacements List - now scrollable */}
+                <FlatList
+                  data={filteredAndSortedReplacements}
+                  keyExtractor={item => item._id}
+                  contentContainerStyle={styles.listContent}
+                  ListHeaderComponent={
+                    <TouchableOpacity style={styles.addButton} onPress={handleOpenAddModal}>
+                      <LinearGradient
+                        colors={['#444', '#222']}
+                        style={styles.gradientAddButton}
+                        start={{ x: 0, y: 0 }}
+                        end={{ x: 1, y: 0 }}
+                      >
+                        <Ionicons name="add-circle-outline" size={22} color="#fff" />
+                        <Text style={styles.addButtonText}>إضافة استبدال جديد</Text>
+                      </LinearGradient>
+                    </TouchableOpacity>
+                  }
+                  renderItem={({item, index}) => (
+                    <Animated.View style={[styles.replacementItem, { opacity: fadeAnim }]}>
+                      <LinearGradient
+                        colors={['rgba(255,255,255,0.05)', 'rgba(255,255,255,0.01)']}
+                        style={StyleSheet.absoluteFill}
+                        start={{ x: 0, y: 0 }}
+                        end={{ x: 1, y: 1 }}
+                      />
+                      <View style={styles.itemContent}>
+                        <View style={styles.itemTextContainer}>
+                          <Text style={styles.itemOriginal}>{item.original}</Text>
+                          {item.replacement ? (
+                            <Text style={styles.itemReplacement}>← {item.replacement}</Text>
+                          ) : (
+                            <Text style={styles.itemDeleted}>سيتم الحذف نهائياً</Text>
+                          )}
+                        </View>
+                        <View style={styles.itemActions}>
+                          <TouchableOpacity onPress={() => startEditReplacement(item)} style={styles.actionButton}>
+                            <Ionicons name="create-outline" size={20} color="#ccc" />
+                          </TouchableOpacity>
+                          <TouchableOpacity onPress={() => handleDeleteReplacement(item._id)} style={styles.actionButton}>
+                            <Ionicons name="trash-outline" size={20} color="#999" />
+                          </TouchableOpacity>
+                        </View>
+                      </View>
+                    </Animated.View>
+                  )}
+                  ListEmptyComponent={
+                    <View style={styles.emptyList}>
+                      <Ionicons name="color-filter-outline" size={48} color="rgba(255,255,255,0.1)" />
+                      <Text style={styles.emptyListText}>لا توجد استبدالات نشطة</Text>
+                      <Text style={styles.emptyListSubtext}>أضف أول استبدال الآن</Text>
+                    </View>
+                  }
+                />
+              </View>
+            </Animated.View>
+          </Animated.View>
+        </Modal>
+
+        {/* 🔥 ADD REPLACEMENT MODAL (Sub-modal) 🔥 */}
+        <Modal visible={showAddModal} transparent animationType="fade" onRequestClose={handleCloseAddModal}>
+          <View style={styles.subModalOverlay}>
+            <Animated.View style={[styles.subModalContainer, { transform: [{ scale: fadeAnim.interpolate({ inputRange: [0, 1], outputRange: [0.9, 1] }) }] }]}>
+              <LinearGradient
+                colors={['rgba(255,255,255,0.1)', 'rgba(255,255,255,0.02)']}
+                style={StyleSheet.absoluteFill}
+                start={{ x: 0, y: 0 }}
+                end={{ x: 1, y: 1 }}
+              />
+              
+              <View style={styles.subModalHeader}>
+                <Ionicons name={editingRepId ? "create-outline" : "add-circle-outline"} size={28} color="#fff" />
+                <Text style={styles.subModalTitle}>{editingRepId ? 'تعديل استبدال' : 'إضافة استبدال جديد'}</Text>
+              </View>
+
+              <View style={styles.subModalBody}>
+                <View style={styles.inputRow}>
+                  <View style={styles.inputIconContainer}>
+                    <Ionicons name="text" size={20} color="#aaa" />
+                  </View>
+                  <View style={styles.inputWrapper}>
+                    <Text style={styles.inputLabel}>الكلمة الأصلية</Text>
+                    <TextInput 
+                      style={styles.glassInput}
+                      value={newOriginal}
+                      onChangeText={setNewOriginal}
+                      placeholder="مثال: كلمة سيئة"
+                      placeholderTextColor="rgba(255,255,255,0.3)"
+                      textAlign="right"
+                    />
+                  </View>
+                </View>
+
+                <View style={styles.inputRow}>
+                  <View style={styles.inputIconContainer}>
+                    <Ionicons name="swap-horizontal" size={20} color="#aaa" />
+                  </View>
+                  <View style={styles.inputWrapper}>
+                    <Text style={styles.inputLabel}>الاستبدال (اختياري)</Text>
+                    <TextInput 
+                      style={styles.glassInput}
+                      value={newReplacement}
+                      onChangeText={setNewReplacement}
+                      placeholder="مثال: كلمة جيدة"
+                      placeholderTextColor="rgba(255,255,255,0.3)"
+                      textAlign="right"
+                    />
+                  </View>
+                </View>
+
+                <View style={styles.subModalActions}>
+                  <TouchableOpacity style={styles.subModalCancelButton} onPress={handleCloseAddModal}>
+                    <Text style={styles.subModalCancelText}>إلغاء</Text>
+                  </TouchableOpacity>
+                  <TouchableOpacity style={styles.subModalSaveButton} onPress={handleSaveReplacement} disabled={repLoading}>
+                    {repLoading ? (
+                      <ActivityIndicator color="#fff" />
+                    ) : (
+                      <Text style={styles.subModalSaveText}>{editingRepId ? 'تحديث' : 'إضافة'}</Text>
+                    )}
+                  </TouchableOpacity>
+                </View>
+              </View>
+            </Animated.View>
+          </View>
+        </Modal>
+
       </SafeAreaView>
     </View>
   );
@@ -342,12 +692,11 @@ const styles = StyleSheet.create({
       paddingVertical: 20,
   },
   greeting: { fontSize: 24, fontWeight: 'bold', color: '#fff', textAlign: 'right' },
-  roleText: { fontSize: 14, color: '#4a7cc7', marginTop: 4, textAlign: 'right', fontWeight: '600' },
+  roleText: { fontSize: 14, color: '#aaa', marginTop: 4, textAlign: 'right', fontWeight: '600' },
   closeBtn: { padding: 10, backgroundColor: 'rgba(255,255,255,0.1)', borderRadius: 12 },
   
   content: { padding: 20, paddingBottom: 50 },
   
-  // Glass Card Base (Matched AdminDashboard)
   glassCard: {
       borderRadius: 16,
       overflow: 'hidden',
@@ -356,7 +705,6 @@ const styles = StyleSheet.create({
       position: 'relative'
   },
 
-  // Stats
   statsContainer: { flexDirection: 'row', gap: 15, marginBottom: 30 },
   statCard: { flex: 1, padding: 20, alignItems: 'center', justifyContent: 'center' },
   statNumber: { color: '#fff', fontSize: 24, fontWeight: 'bold', marginBottom: 5 },
@@ -367,7 +715,6 @@ const styles = StyleSheet.create({
   
   grid: { gap: 12 },
   
-  // Dashboard Buttons
   dashboardBtn: {
       flexDirection: 'row-reverse',
       alignItems: 'center',
@@ -385,7 +732,7 @@ const styles = StyleSheet.create({
   btnTitle: { color: '#fff', fontSize: 16, fontWeight: 'bold', textAlign: 'right', marginBottom: 4 },
   btnSubtitle: { color: '#888', fontSize: 12, textAlign: 'right' },
 
-  // Modal Styles
+  // Modal Styles (user picker - unchanged)
   modalBg: { flex: 1, backgroundColor: 'rgba(0,0,0,0.8)', justifyContent: 'center', padding: 20 },
   modalContent: { backgroundColor: '#161616', borderRadius: 16, padding: 20, borderWidth: 1, borderColor: '#333' },
   modalTitle: { color: '#fff', fontSize: 18, fontWeight: 'bold', textAlign: 'center', marginBottom: 15 },
@@ -394,5 +741,293 @@ const styles = StyleSheet.create({
   userItem: { flexDirection: 'row-reverse', alignItems: 'center', justifyContent: 'space-between', padding: 15, borderBottomWidth: 1, borderBottomColor: '#222' },
   userName: { color: '#fff', fontWeight: 'bold', textAlign: 'right' },
   userEmail: { color: '#888', fontSize: 12, textAlign: 'right' },
-  closeModalBtn: { marginTop: 20, padding: 12, backgroundColor: '#333', borderRadius: 12, alignItems: 'center' }
+  closeModalBtn: { marginTop: 20, padding: 12, backgroundColor: '#333', borderRadius: 12, alignItems: 'center' },
+
+  // ========== BLACK & WHITE GLASS MODAL STYLES ==========
+  modalOverlay: {
+    flex: 1,
+    backgroundColor: 'rgba(0,0,0,0.8)',
+    justifyContent: 'center',
+    alignItems: 'center',
+    padding: 16,
+  },
+  glassModalContainer: {
+    width: '100%',
+    height: '90%',
+    backgroundColor: 'rgba(20,20,20,0.7)',
+    borderRadius: 32,
+    borderWidth: 1,
+    borderColor: 'rgba(255,255,255,0.1)',
+    overflow: 'hidden',
+    shadowColor: '#fff',
+    shadowOffset: { width: 0, height: 0 },
+    shadowOpacity: 0.1,
+    shadowRadius: 20,
+    elevation: 25,
+  },
+  floatingCloseButton: {
+    position: 'absolute',
+    top: 16,
+    right: 16,
+    zIndex: 10,
+    width: 40,
+    height: 40,
+    borderRadius: 20,
+    backgroundColor: 'rgba(255,255,255,0.1)',
+    justifyContent: 'center',
+    alignItems: 'center',
+    borderWidth: 1,
+    borderColor: 'rgba(255,255,255,0.2)',
+  },
+  modalHeader: {
+    alignItems: 'center',
+    paddingTop: 40,
+    paddingBottom: 20,
+  },
+  modalSubtitle: {
+    color: 'rgba(255,255,255,0.5)',
+    fontSize: 14,
+    marginTop: 4,
+    letterSpacing: 1,
+  },
+  glowLine: {
+    height: 1,
+    width: 60,
+    backgroundColor: 'rgba(255,255,255,0.3)',
+    alignSelf: 'center',
+    marginBottom: 20,
+  },
+  modalBody: {
+    flex: 1,
+    paddingHorizontal: 16,
+    paddingBottom: 16,
+  },
+  searchSortBar: {
+    flexDirection: 'row-reverse',
+    alignItems: 'center',
+    marginBottom: 16,
+    gap: 10,
+  },
+  searchContainer: {
+    flex: 1,
+    flexDirection: 'row-reverse',
+    alignItems: 'center',
+    backgroundColor: 'rgba(255,255,255,0.05)',
+    borderRadius: 20,
+    paddingHorizontal: 12,
+    borderWidth: 1,
+    borderColor: 'rgba(255,255,255,0.1)',
+  },
+  searchInputSmall: {
+    flex: 1,
+    color: '#fff',
+    padding: 10,
+    fontSize: 14,
+    textAlign: 'right',
+  },
+  sortButton: {
+    width: 44,
+    height: 44,
+    borderRadius: 22,
+    backgroundColor: 'rgba(255,255,255,0.05)',
+    justifyContent: 'center',
+    alignItems: 'center',
+    borderWidth: 1,
+    borderColor: 'rgba(255,255,255,0.1)',
+  },
+  listHeader: {
+    flexDirection: 'row-reverse',
+    alignItems: 'center',
+    marginBottom: 12,
+    gap: 6,
+  },
+  listHeaderText: {
+    color: '#aaa',
+    fontSize: 14,
+    fontWeight: '600',
+  },
+  listContent: {
+    paddingBottom: 10,
+  },
+  addButton: {
+    marginBottom: 16,
+    borderRadius: 20,
+    overflow: 'hidden',
+  },
+  gradientAddButton: {
+    flexDirection: 'row-reverse',
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingVertical: 14,
+    gap: 8,
+    backgroundColor: '#333', // fallback
+  },
+  addButtonText: {
+    color: '#fff',
+    fontSize: 15,
+    fontWeight: 'bold',
+    letterSpacing: 1,
+  },
+  replacementItem: {
+    borderRadius: 20,
+    marginBottom: 8,
+    borderWidth: 1,
+    borderColor: 'rgba(255,255,255,0.1)',
+    overflow: 'hidden',
+    backgroundColor: 'rgba(0,0,0,0.3)',
+  },
+  itemContent: {
+    flexDirection: 'row-reverse',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    padding: 14,
+  },
+  itemTextContainer: {
+    flex: 1,
+    marginLeft: 10,
+  },
+  itemOriginal: {
+    color: '#fff',
+    fontSize: 15,
+    fontWeight: 'bold',
+    textAlign: 'right',
+    marginBottom: 3,
+  },
+  itemReplacement: {
+    color: '#ccc',
+    fontSize: 12,
+    textAlign: 'right',
+  },
+  itemDeleted: {
+    color: '#888',
+    fontSize: 12,
+    textAlign: 'right',
+  },
+  itemActions: {
+    flexDirection: 'row',
+    gap: 8,
+  },
+  actionButton: {
+    width: 36,
+    height: 36,
+    borderRadius: 18,
+    backgroundColor: 'rgba(255,255,255,0.03)',
+    justifyContent: 'center',
+    alignItems: 'center',
+    borderWidth: 1,
+    borderColor: 'rgba(255,255,255,0.1)',
+  },
+  emptyList: {
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingVertical: 40,
+  },
+  emptyListText: {
+    color: '#aaa',
+    fontSize: 15,
+    marginTop: 10,
+  },
+  emptyListSubtext: {
+    color: 'rgba(255,255,255,0.2)',
+    fontSize: 12,
+    marginTop: 4,
+  },
+
+  // ========== SUB MODAL STYLES ==========
+  subModalOverlay: {
+    flex: 1,
+    backgroundColor: 'rgba(0,0,0,0.9)',
+    justifyContent: 'center',
+    alignItems: 'center',
+    padding: 20,
+  },
+  subModalContainer: {
+    width: '90%',
+    backgroundColor: 'rgba(30,30,30,0.9)',
+    borderRadius: 28,
+    borderWidth: 1,
+    borderColor: 'rgba(255,255,255,0.1)',
+    overflow: 'hidden',
+    padding: 20,
+  },
+  subModalHeader: {
+    flexDirection: 'row-reverse',
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginBottom: 20,
+    gap: 8,
+  },
+  subModalTitle: {
+    color: '#fff',
+    fontSize: 18,
+    fontWeight: 'bold',
+    textAlign: 'center',
+  },
+  subModalBody: {
+    gap: 16,
+  },
+  inputRow: {
+    flexDirection: 'row-reverse',
+    alignItems: 'center',
+  },
+  inputIconContainer: {
+    width: 40,
+    height: 40,
+    borderRadius: 20,
+    backgroundColor: 'rgba(255,255,255,0.05)',
+    justifyContent: 'center',
+    alignItems: 'center',
+    marginLeft: 12,
+    borderWidth: 1,
+    borderColor: 'rgba(255,255,255,0.1)',
+  },
+  inputWrapper: {
+    flex: 1,
+  },
+  inputLabel: {
+    color: 'rgba(255,255,255,0.4)',
+    fontSize: 12,
+    marginBottom: 4,
+    textAlign: 'right',
+  },
+  glassInput: {
+    backgroundColor: 'rgba(0,0,0,0.5)',
+    borderRadius: 16,
+    padding: 12,
+    color: '#fff',
+    fontSize: 14,
+    borderWidth: 1,
+    borderColor: 'rgba(255,255,255,0.1)',
+    textAlign: 'right',
+  },
+  subModalActions: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    marginTop: 20,
+    gap: 12,
+  },
+  subModalCancelButton: {
+    flex: 1,
+    padding: 14,
+    borderRadius: 20,
+    backgroundColor: 'rgba(255,255,255,0.1)',
+    alignItems: 'center',
+  },
+  subModalCancelText: {
+    color: '#aaa',
+    fontSize: 15,
+    fontWeight: '600',
+  },
+  subModalSaveButton: {
+    flex: 1,
+    padding: 14,
+    borderRadius: 20,
+    backgroundColor: '#333',
+    alignItems: 'center',
+  },
+  subModalSaveText: {
+    color: '#fff',
+    fontSize: 15,
+    fontWeight: 'bold',
+  },
 });
