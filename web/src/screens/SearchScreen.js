@@ -1,4 +1,3 @@
-
 import React, { useState, useEffect } from 'react';
 import {
   View,
@@ -71,7 +70,8 @@ export default function SearchScreen({ navigation }) {
       // Reduced debounce time for snappier feeling (300ms)
       searchTimeout = setTimeout(async () => {
         try {
-            const response = await api.get(`/api/novels?search=${encodeURIComponent(query)}`);
+            // تعديل هنا: إضافة limit=1000 لجلب جميع الروايات
+            const response = await api.get(`/api/novels?search=${encodeURIComponent(query)}&limit=1000`);
             // Fix: Access .novels array from response
             setSearchResults(response.data.novels || response.data || []);
         } catch (error) {
