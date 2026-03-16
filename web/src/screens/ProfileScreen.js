@@ -1,4 +1,3 @@
-
 import React, { useContext, useState, useEffect, useRef, useCallback } from 'react';
 import {
   View,
@@ -239,195 +238,223 @@ export default function ProfileScreen({ navigation, route }) {
       </View>
   );
 
-  // 🔥 Responsive Grid/List Renderer (With Load More, No Status Badge)
-  const renderLibraryStyleGrid = (data, emptyMsg, type) => {
-      if (!data || data.length === 0) {
-          return (
-              <View style={styles.emptyContainer}>
-                  <Ionicons name="book-outline" size={40} color="#333" />
-                  <Text style={styles.emptyText}>{emptyMsg}</Text>
-              </View>
-          );
-      }
-
-      const hasMore = type === 'works' ? hasMoreWorks : hasMoreFavorites;
-
+  // 🔥 Responsive Grid/List Renderer (Now returns a component, not a function)
+  const renderLibraryItem = ({ item, index }) => {
+      const ContainerStyle = isMobile ? styles.mobileCard : styles.tabletCard;
+      const ImageStyle = isMobile ? styles.mobileImage : styles.tabletImage;
+      
       return (
-          <View>
-              <View style={styles.gridContainer}>
-                  {data.map((item, index) => {
-                      const ContainerStyle = isMobile ? styles.mobileCard : styles.tabletCard;
-                      const ImageStyle = isMobile ? styles.mobileImage : styles.tabletImage;
-                      
-                      return (
-                        <TouchableOpacity
-                            key={index}
-                            style={ContainerStyle}
-                            onPress={() => navigation.push('NovelDetail', { 
-                                novel: { ...item, _id: item.novelId || item._id } 
-                            })}
-                            activeOpacity={0.8}
-                        >
-                            {isMobile ? (
-                                // --- MOBILE VIEW ---
-                                <>
-                                    <View>
-                                        <Image 
-                                            source={item.cover} 
-                                            style={ImageStyle}
-                                            contentFit="cover" 
-                                            transition={300}
-                                            cachePolicy="memory-disk"
-                                        />
-                                        {/* ❌ Status Badge Removed Here */}
-                                    </View>
-                                    
-                                    <View style={styles.mobileInfo}>
-                                        <Text style={styles.novelTitle} numberOfLines={2}>{item.title}</Text>
-                                        
-                                        <View style={styles.novelStats}>
-                                            <View style={styles.statBadge}>
-                                                <Text style={styles.statText}>{item.chaptersCount || (item.chapters ? item.chapters.length : 0)} فصل</Text>
-                                                <Ionicons name="book-outline" size={12} color="#888" style={{marginLeft: 4}} />
-                                            </View>
-                                        </View>
-                                    </View>
-                                </>
-                            ) : (
-                                // --- TABLET/LARGE VIEW ---
-                                <>
-                                    <Image 
-                                        source={item.cover} 
-                                        style={ImageStyle}
-                                        contentFit="cover" 
-                                        transition={300}
-                                        cachePolicy="memory-disk"
-                                    />
-                                    {/* ❌ Status Badge Removed Here */}
-                                    <View style={styles.cardInfo}>
-                                        {/* تعديل الخط للشاشات الكبيرة: سطرين وخط أصغر */}
-                                        <Text style={[styles.novelTitle, { fontSize: 11, height: 'auto' }]} numberOfLines={2}>{item.title}</Text>
-                                        <View style={styles.novelStats}>
-                                            <View style={styles.statBadge}>
-                                                <Ionicons name="book-outline" size={12} color="#888" />
-                                                <Text style={styles.statText}>{item.chaptersCount || (item.chapters ? item.chapters.length : 0)} فصل</Text>
-                                            </View>
-                                        </View>
-                                    </View>
-                                </>
-                            )}
-                        </TouchableOpacity>
-                      );
-                  })}
-              </View>
-              
-              {/* Load More Button */}
-              {hasMore && (
-                  <TouchableOpacity style={styles.loadMoreButton} onPress={() => loadMoreData(type)} disabled={loadingMore}>
-                      {loadingMore ? <ActivityIndicator color="#fff" size="small" /> : <Text style={styles.loadMoreText}>عرض المزيد</Text>}
-                  </TouchableOpacity>
-              )}
-          </View>
+        <TouchableOpacity
+            style={ContainerStyle}
+            onPress={() => navigation.push('NovelDetail', { 
+                novel: { ...item, _id: item.novelId || item._id } 
+            })}
+            activeOpacity={0.8}
+        >
+            {isMobile ? (
+                // --- MOBILE VIEW ---
+                <>
+                    <View>
+                        <Image 
+                            source={item.cover} 
+                            style={ImageStyle}
+                            contentFit="cover" 
+                            transition={300}
+                            cachePolicy="memory-disk"
+                        />
+                    </View>
+                    
+                    <View style={styles.mobileInfo}>
+                        <Text style={styles.novelTitle} numberOfLines={2}>{item.title}</Text>
+                        
+                        <View style={styles.novelStats}>
+                            <View style={styles.statBadge}>
+                                <Text style={styles.statText}>{item.chaptersCount || (item.chapters ? item.chapters.length : 0)} فصل</Text>
+                                <Ionicons name="book-outline" size={12} color="#888" style={{marginLeft: 4}} />
+                            </View>
+                        </View>
+                    </View>
+                </>
+            ) : (
+                // --- TABLET/LARGE VIEW ---
+                <>
+                    <Image 
+                        source={item.cover} 
+                        style={ImageStyle}
+                        contentFit="cover" 
+                        transition={300}
+                        cachePolicy="memory-disk"
+                    />
+                    <View style={styles.cardInfo}>
+                        <Text style={[styles.novelTitle, { fontSize: 11, height: 'auto' }]} numberOfLines={2}>{item.title}</Text>
+                        <View style={styles.novelStats}>
+                            <View style={styles.statBadge}>
+                                <Ionicons name="book-outline" size={12} color="#888" />
+                                <Text style={styles.statText}>{item.chaptersCount || (item.chapters ? item.chapters.length : 0)} فصل</Text>
+                            </View>
+                        </View>
+                    </View>
+                </>
+            )}
+        </TouchableOpacity>
       );
   };
 
-  const renderHistoryList = (data, emptyMsg) => {
-    if (!data || data.length === 0) {
-        return (
-            <View style={styles.emptyContainer}>
-                <Ionicons name="time-outline" size={40} color="#333" />
-                <Text style={styles.emptyText}>{emptyMsg}</Text>
-            </View>
-        );
-    }
-    return (
-        <View>
-            <View style={{ gap: 15 }}>
-                {data.map((item, index) => (
-                    <TouchableOpacity 
-                        key={index}
-                        style={styles.historyCard}
-                        activeOpacity={0.8}
-                        onPress={() => navigation.navigate('Reader', { 
-                            novel: { ...item, _id: item.novelId }, 
-                            chapterId: item.lastChapterId 
-                        })}
-                    >
-                        <Image 
-                            source={item.cover} 
-                            style={styles.historyImage} 
-                            contentFit="cover"
-                            transition={200}
-                            cachePolicy="memory-disk"
-                        />
-                        <View style={styles.historyContent}>
-                            <Text style={styles.historyTitle} numberOfLines={1}>{item.title}</Text>
-                            
-                            <View style={styles.historyChapterRow}>
-                                <Text style={styles.historyChapterText} numberOfLines={1}>
-                                    {item.lastChapterTitle ? `فصل ${item.lastChapterId}: ${item.lastChapterTitle}` : `الفصل ${item.lastChapterId}`}
-                                </Text>
-                            </View>
+  const renderHistoryItem = ({ item }) => (
+      <TouchableOpacity 
+          style={styles.historyCard}
+          activeOpacity={0.8}
+          onPress={() => navigation.navigate('Reader', { 
+              novel: { ...item, _id: item.novelId }, 
+              chapterId: item.lastChapterId 
+          })}
+      >
+          <Image 
+              source={item.cover} 
+              style={styles.historyImage} 
+              contentFit="cover"
+              transition={200}
+              cachePolicy="memory-disk"
+          />
+          <View style={styles.historyContent}>
+              <Text style={styles.historyTitle} numberOfLines={1}>{item.title}</Text>
+              
+              <View style={styles.historyChapterRow}>
+                  <Text style={styles.historyChapterText} numberOfLines={1}>
+                      {item.lastChapterTitle ? `فصل ${item.lastChapterId}: ${item.lastChapterTitle}` : `الفصل ${item.lastChapterId}`}
+                  </Text>
+              </View>
 
-                            <View style={styles.progressBarBg}>
-                                <View style={[styles.progressBarFill, { width: `${item.progress || 0}%` }]} />
-                            </View>
-                            <Text style={styles.progressText}>{item.progress || 0}% مكتمل</Text>
-                        </View>
+              <View style={styles.progressBarBg}>
+                  <View style={[styles.progressBarFill, { width: `${item.progress || 0}%` }]} />
+              </View>
+              <Text style={styles.progressText}>{item.progress || 0}% مكتمل</Text>
+          </View>
+      </TouchableOpacity>
+  );
+
+  // This renders the header of the main FlatList (Hero + Tabs + optional Data tab content)
+  const renderHeader = () => (
+      <>
+        {/* Hero Section */}
+        <View style={styles.heroContainer}>
+            <Image 
+                source={bannerSource} 
+                style={styles.bannerImage}
+                contentFit="cover"
+            />
+            <LinearGradient colors={['transparent', 'rgba(0,0,0,0.8)', '#000000']} style={styles.heroGradient} />
+            
+            {/* Header Controls */}
+            <View style={styles.headerControls}>
+                {!isSelf && (
+                    <TouchableOpacity style={styles.iconBtn} onPress={() => navigation.goBack()}>
+                        <Ionicons name="arrow-back" size={24} color="#fff" />
                     </TouchableOpacity>
-                ))}
+                )}
             </View>
-            {/* Load More History */}
-            {hasMoreHistory && (
-                  <TouchableOpacity style={styles.loadMoreButton} onPress={() => loadMoreData('history')} disabled={loadingMore}>
-                      {loadingMore ? <ActivityIndicator color="#fff" size="small" /> : <Text style={styles.loadMoreText}>عرض المزيد</Text>}
-                  </TouchableOpacity>
-            )}
+
+            <View style={styles.profileInfo}>
+                <View style={styles.avatarContainer}>
+                    <Image 
+                        source={avatarSource} 
+                        style={styles.avatarImage} 
+                        contentFit="cover" 
+                    />
+                </View>
+                <Text style={styles.userName}>{profileUser?.name || 'مستخدم'}</Text>
+                <Text style={styles.userRole}>{isProfileAdmin ? 'مشرف عام' : isProfileContributor ? 'مترجم / مؤلف' : 'قارئ مميز'}</Text>
+                
+                {renderDashboardButton()}
+            </View>
         </View>
-    );
+
+        {/* Tabs - Reordered & Conditional */}
+        <View style={styles.tabsContainer}>
+            {renderTabButton('data', 'البيانات')}
+            {isProfileContributor && renderTabButton('works', 'الأعمال')}
+            {showLibraryTabs && renderTabButton('favorites', 'المفضلة')}
+            {showLibraryTabs && renderTabButton('history', 'السجل')}
+        </View>
+
+        {/* If active tab is 'data', render the data content here (since no FlatList for data) */}
+        {activeTab === 'data' && (
+            <View style={styles.contentContainer}>
+                <View style={styles.bioContainer}>
+                    <Text style={styles.sectionTitle}>النبذة التعريفية</Text>
+                    <Text style={styles.bioText}>
+                        {profileUser?.bio || "لا توجد نبذة تعريفية."}
+                    </Text>
+                </View>
+
+                <View style={styles.dataSection}>
+                    {renderDataRow("person", "نوع العضوية", isProfileAdmin ? "مشرف (Admin)" : isProfileContributor ? "مساهم" : "قارئ", isProfileAdmin ? "#ff4444" : "#4a7cc7")}
+                    <View style={styles.separator} />
+                    {renderDataRow("book", "الفصول المقروءة", stats.readChapters, "#4ade80")}
+                    <View style={styles.separator} />
+                    {isProfileContributor && (
+                        <>
+                            {renderDataRow("cloud-upload", "الفصول المضافة", stats.addedChapters, "#ffa500")}
+                            <View style={styles.separator} />
+                            {renderDataRow("eye", "المشاهدات", stats.totalViews, "#d44aff")}
+                            <View style={styles.separator} />
+                        </>
+                    )}
+                    {renderDataRow("calendar", "تاريخ الانضمام", stats.joinDate, "#888")}
+                </View>
+            </View>
+        )}
+      </>
+  );
+
+  // Determine which data to show in the main FlatList based on active tab
+  const getCurrentData = () => {
+      switch (activeTab) {
+          case 'works': return myWorks;
+          case 'favorites': return favorites;
+          case 'history': return history;
+          default: return []; // data tab has no list items
+      }
   };
 
-  const renderContent = () => {
-      // Logic for showing library tabs: Self OR Public
-      const showLibrary = isSelf || (profileUser && profileUser.isHistoryPublic);
+  // Determine which loadMore function to use
+  const handleLoadMore = () => {
+      if (loadingMore || activeTab === 'data') return;
+      
+      let hasMore = false;
+      if (activeTab === 'works') hasMore = hasMoreWorks;
+      else if (activeTab === 'favorites') hasMore = hasMoreFavorites;
+      else if (activeTab === 'history') hasMore = hasMoreHistory;
 
-      switch (activeTab) {
-          case 'data':
-              return (
-                  <View style={styles.tabContent}>
-                      <View style={styles.bioContainer}>
-                          <Text style={styles.sectionTitle}>النبذة التعريفية</Text>
-                          <Text style={styles.bioText}>
-                              {profileUser?.bio || "لا توجد نبذة تعريفية."}
-                          </Text>
-                      </View>
-
-                      <View style={styles.dataSection}>
-                          {renderDataRow("person", "نوع العضوية", isProfileAdmin ? "مشرف (Admin)" : isProfileContributor ? "مساهم" : "قارئ", isProfileAdmin ? "#ff4444" : "#4a7cc7")}
-                          <View style={styles.separator} />
-                          {renderDataRow("book", "الفصول المقروءة", stats.readChapters, "#4ade80")}
-                          <View style={styles.separator} />
-                          {isProfileContributor && (
-                              <>
-                                  {renderDataRow("cloud-upload", "الفصول المضافة", stats.addedChapters, "#ffa500")}
-                                  <View style={styles.separator} />
-                                  {renderDataRow("eye", "المشاهدات", stats.totalViews, "#d44aff")}
-                                  <View style={styles.separator} />
-                              </>
-                          )}
-                          {renderDataRow("calendar", "تاريخ الانضمام", stats.joinDate, "#888")}
-                      </View>
-                  </View>
-              );
-          case 'works':
-              return renderLibraryStyleGrid(myWorks, "لا توجد أعمال منشورة.", 'works');
-          case 'favorites':
-              return showLibrary ? renderLibraryStyleGrid(favorites, "قائمة المفضلة فارغة.", 'favorites') : null;
-          case 'history':
-              return showLibrary ? renderHistoryList(history, "سجل القراءة فارغ.") : null;
-          default:
-              return null;
+      if (hasMore) {
+          loadMoreData(activeTab);
       }
+  };
+
+  // Render item for the main FlatList
+  const renderItem = ({ item, index }) => {
+      if (activeTab === 'history') {
+          return renderHistoryItem({ item });
+      } else {
+          return renderLibraryItem({ item, index });
+      }
+  };
+
+  // Empty component for tabs with lists
+  const renderEmptyComponent = () => {
+      if (activeTab === 'data') return null; // data content is already in header
+      
+      let message = '';
+      if (activeTab === 'works') message = "لا توجد أعمال منشورة.";
+      else if (activeTab === 'favorites') message = "قائمة المفضلة فارغة.";
+      else if (activeTab === 'history') message = "سجل القراءة فارغ.";
+
+      return (
+          <View style={styles.emptyContainer}>
+              <Ionicons name="book-outline" size={40} color="#333" />
+              <Text style={styles.emptyText}>{message}</Text>
+          </View>
+      );
   };
 
   const AsyncStorage = require('@react-native-async-storage/async-storage').default;
@@ -474,61 +501,29 @@ export default function ProfileScreen({ navigation, route }) {
           <LinearGradient colors={['rgba(0,0,0,0.6)', '#000000']} style={StyleSheet.absoluteFill} />
       </ImageBackground>
 
-      <ScrollView 
-        showsVerticalScrollIndicator={false}
-        onScroll={Animated.event([{ nativeEvent: { contentOffset: { y: scrollY } } }], { useNativeDriver: false })}
-        scrollEventThrottle={16}
-      >
-        {/* Hero Section */}
-        <View style={styles.heroContainer}>
-            <Image 
-                source={bannerSource} 
-                style={styles.bannerImage}
-                contentFit="cover"
-            />
-            <LinearGradient colors={['transparent', 'rgba(0,0,0,0.8)', '#000000']} style={styles.heroGradient} />
-            
-            {/* Header Controls */}
-            <View style={styles.headerControls}>
-                {!isSelf && (
-                    <TouchableOpacity style={styles.iconBtn} onPress={() => navigation.goBack()}>
-                        <Ionicons name="arrow-back" size={24} color="#fff" />
-                    </TouchableOpacity>
-                )}
-            </View>
-
-            <View style={styles.profileInfo}>
-                <View style={styles.avatarContainer}>
-                    <Image 
-                        source={avatarSource} 
-                        style={styles.avatarImage} 
-                        contentFit="cover" 
-                    />
-                </View>
-                <Text style={styles.userName}>{profileUser?.name || 'مستخدم'}</Text>
-                <Text style={styles.userRole}>{isProfileAdmin ? 'مشرف عام' : isProfileContributor ? 'مترجم / مؤلف' : 'قارئ مميز'}</Text>
-                
-                {renderDashboardButton()}
-            </View>
-        </View>
-
-        {/* Tabs - Reordered & Conditional */}
-        <View style={styles.tabsContainer}>
-            {renderTabButton('data', 'البيانات')}
-            {isProfileContributor && renderTabButton('works', 'الأعمال')}
-            {showLibraryTabs && renderTabButton('favorites', 'المفضلة')}
-            {showLibraryTabs && renderTabButton('history', 'السجل')}
-        </View>
-
-        {/* Content Area */}
-        <View style={styles.contentContainer}>
-            {loading && !profileUser ? (
-                <ActivityIndicator color="#4a7cc7" style={{marginTop: 50}} />
-            ) : renderContent()}
-        </View>
-
-        <View style={{height: 100}} />
-      </ScrollView>
+      {loading && !profileUser ? (
+          <View style={styles.centered}>
+              <ActivityIndicator size="large" color="#4a7cc7" />
+          </View>
+      ) : (
+          <FlatList
+              data={getCurrentData()}
+              keyExtractor={(item, index) => item._id || index.toString()}
+              renderItem={renderItem}
+              ListHeaderComponent={renderHeader}
+              ListEmptyComponent={renderEmptyComponent}
+              onEndReached={handleLoadMore}
+              onEndReachedThreshold={0.3}
+              showsVerticalScrollIndicator={false}
+              contentContainerStyle={{ paddingBottom: 100 }}
+              // Add footer spinner when loading more
+              ListFooterComponent={loadingMore && activeTab !== 'data' ? (
+                  <View style={{ paddingVertical: 20 }}>
+                      <ActivityIndicator color="#4a7cc7" />
+                  </View>
+              ) : null}
+          />
+      )}
     </View>
   );
 }
@@ -536,6 +531,7 @@ export default function ProfileScreen({ navigation, route }) {
 const styles = StyleSheet.create({
   container: { flex: 1, backgroundColor: '#000000' },
   bgImage: { ...StyleSheet.absoluteFillObject },
+  centered: { flex: 1, justifyContent: 'center', alignItems: 'center' },
   
   // Hero Section
   heroContainer: {
@@ -660,7 +656,6 @@ const styles = StyleSheet.create({
   // Content
   contentContainer: {
       padding: 20,
-      minHeight: 300
   },
   bioContainer: {
       marginBottom: 25,
@@ -798,6 +793,7 @@ const styles = StyleSheet.create({
       alignItems: 'center', 
       borderWidth: 1, 
       borderColor: 'rgba(255,255,255,0.1)',
+      marginBottom: 10,
   },
   historyImage: { 
       width: 70, 
@@ -850,27 +846,12 @@ const styles = StyleSheet.create({
   emptyContainer: {
       alignItems: 'center',
       justifyContent: 'center',
-      paddingTop: 50
+      paddingTop: 50,
+      paddingBottom: 20
   },
   emptyText: {
       color: '#444',
       marginTop: 10,
-      fontSize: 14
-  },
-
-  // Load More Button
-  loadMoreButton: {
-      backgroundColor: 'rgba(26, 26, 26, 0.8)',
-      paddingVertical: 12,
-      borderRadius: 8,
-      alignItems: 'center',
-      marginTop: 20,
-      borderWidth: 1,
-      borderColor: 'rgba(255,255,255,0.1)'
-  },
-  loadMoreText: {
-      color: '#4a7cc7',
-      fontWeight: '600',
       fontSize: 14
   },
 });
