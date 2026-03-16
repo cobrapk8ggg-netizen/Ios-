@@ -1,4 +1,3 @@
-
 import React, { useState, useContext, useEffect, useRef, useCallback } from 'react';
 import {
   View,
@@ -89,6 +88,13 @@ export default function AutoImportScreen({ navigation }) {
   const flatListRef = useRef(null);
   const pollingRef = useRef(null);
 
+  // --- NEW STATE FOR SEARCH AND SORT ---
+  const [searchText, setSearchText] = useState('');        // النص الفوري في حقل الإدخال
+  const [searchQuery, setSearchQuery] = useState('');      // النص المستخدم في التصفية (يتم تحديثه بعد توقف الكتابة)
+  const [sortAscending, setSortAscending] = useState(false); // false يعني الأحدث أولاً (تنازلي)
+  const [sortBy, setSortBy] = useState('lastUpdate'); // 'lastUpdate' أو 'lastAdded'
+  const searchTimeoutRef = useRef(null);
+
   useFocusEffect(
       useCallback(() => {
           fetchWatchlist();
@@ -98,7 +104,7 @@ export default function AutoImportScreen({ navigation }) {
 
   useEffect(() => {
       filterData();
-  }, [watchlist, activeTab]);
+  }, [watchlist, activeTab, searchQuery, sortAscending, sortBy]);
 
   // --- SERVER SCHEDULER LOGIC ---
   const checkServerScheduler = async () => {
@@ -162,10 +168,46 @@ export default function AutoImportScreen({ navigation }) {
       }
   };
 
+  // 🔥 Updated filterData to include search and sort
   const filterData = () => {
       if (!watchlist) return;
-      const filtered = watchlist.filter(item => item.status === activeTab);
+      // أولاً: تصفية حسب التبويب
+      let filtered = watchlist.filter(item => item.status === activeTab);
+      
+      // ثانياً: تصفية حسب نص البحث (في العنوان) - باستخدام searchQuery
+      if (searchQuery.trim()) {
+          filtered = filtered.filter(item =>
+              item.title.toLowerCase().includes(searchQuery.toLowerCase())
+          );
+      }
+      
+      // ثالثاً: الترتيب
+      filtered.sort((a, b) => {
+          if (sortBy === 'lastUpdate') {
+              // حسب آخر تحديث (نفترض وجود lastUpdate)
+              const dateA = a.lastUpdate ? new Date(a.lastUpdate) : new Date(0);
+              const dateB = b.lastUpdate ? new Date(b.lastUpdate) : new Date(0);
+              return sortAscending ? dateA - dateB : dateB - dateA;
+          } else {
+              // حسب آخر إضافة (نفترض وجود createdAt أو تاريخ الإنشاء)
+              const dateA = a.createdAt ? new Date(a.createdAt) : new Date(0);
+              const dateB = b.createdAt ? new Date(b.createdAt) : new Date(0);
+              return sortAscending ? dateA - dateB : dateB - dateA;
+          }
+      });
+      
       setFilteredList(filtered);
+  };
+
+  // دالة معالجة تغيير نص البحث مع debounce
+  const handleSearchChange = (text) => {
+      setSearchText(text); // تحديث النص الفوري
+      if (searchTimeoutRef.current) {
+          clearTimeout(searchTimeoutRef.current);
+      }
+      searchTimeoutRef.current = setTimeout(() => {
+          setSearchQuery(text); // تحديث النص الفعلي بعد التوقف عن الكتابة
+      }, 500); // تأخير 500 مللي
   };
 
   // --- LOGIC FOR SCRAPING ---
@@ -312,7 +354,7 @@ export default function AutoImportScreen({ navigation }) {
       );
   };
 
-  // 🔥 Component for Header to scroll away
+  // 🔥 Component for Header to scroll away (without search section)
   const renderHeader = () => (
       <View style={styles.scrollHeaderContainer}>
           <GlassContainer style={styles.schedulerBox}>
@@ -399,13 +441,33 @@ export default function AutoImportScreen({ navigation }) {
             </View>
         </View>
 
-        {/* 🔥 FlatList contains Header to allow full page scrolling */}
+        {/* NEW: Search bar and sort buttons - ثابت خارج FlatList */}
+        <View style={styles.searchSection}>
+            <View style={styles.searchContainer}>
+                <Ionicons name="search" size={20} color="#888" style={styles.searchIcon} />
+                <TextInput
+                    style={styles.searchInput}
+                    placeholder="ابحث باسم الرواية..."
+                    placeholderTextColor="#888"
+                    value={searchText}
+                    onChangeText={handleSearchChange}
+                />
+            </View>
+            <TouchableOpacity style={styles.sortButton} onPress={() => setSortAscending(!sortAscending)}>
+                <Ionicons name={sortAscending ? 'arrow-up' : 'arrow-down'} size={22} color="#fff" />
+            </TouchableOpacity>
+            <TouchableOpacity style={styles.sortButton} onPress={() => setSortBy(prev => prev === 'lastUpdate' ? 'lastAdded' : 'lastUpdate')}>
+                <Ionicons name={sortBy === 'lastUpdate' ? 'time' : 'calendar'} size={22} color="#fff" />
+            </TouchableOpacity>
+        </View>
+
+        {/* 🔥 FlatList now only contains the scrollable header (scheduler, input, tabs) and the list items */}
         <FlatList
             data={filteredList}
             keyExtractor={item => item._id}
             renderItem={renderWatchlistItem}
             ListHeaderComponent={renderHeader} 
-            contentContainerStyle={{padding: 20, paddingBottom: 50}}
+            contentContainerStyle={{paddingHorizontal: 20, paddingBottom: 50}}
             ListEmptyComponent={
                 !fetchingList && (
                     <View style={{alignItems: 'center', marginTop: 50}}>
@@ -468,6 +530,47 @@ const styles = StyleSheet.create({
   activeTabText: { color: '#fff' },
   badge: { width: 6, height: 6, borderRadius: 3 },
 
+  // New styles for search and sort (ثابتة خارج FlatList)
+  searchSection: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingHorizontal: 20,
+    marginBottom: 10,
+  },
+  searchContainer: {
+    flex: 1,
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: 'rgba(255,255,255,0.1)',
+    borderRadius: 12,
+    borderWidth: 1,
+    borderColor: 'rgba(255,255,255,0.2)',
+    marginRight: 10,
+    paddingHorizontal: 10,
+    height: 44,
+  },
+  searchIcon: {
+    marginRight: 8,
+  },
+  searchInput: {
+    flex: 1,
+    color: '#fff',
+    fontSize: 16,
+    textAlign: 'right',
+    paddingVertical: 8,
+  },
+  sortButton: {
+    width: 44,
+    height: 44,
+    justifyContent: 'center',
+    alignItems: 'center',
+    backgroundColor: 'rgba(255,255,255,0.1)',
+    borderRadius: 12,
+    borderWidth: 1,
+    borderColor: 'rgba(255,255,255,0.2)',
+    marginLeft: 8,
+  },
+
   card: { flexDirection: 'row-reverse', backgroundColor: 'rgba(30,30,30,0.6)', borderRadius: 16, marginBottom: 10, overflow: 'hidden', borderWidth: 1, borderColor: 'rgba(255,255,255,0.1)', height: 100 },
   cardImage: { width: 70, height: '100%' },
   cardInfo: { flex: 1, padding: 10, justifyContent: 'center', alignItems: 'flex-end' },
@@ -490,4 +593,3 @@ const styles = StyleSheet.create({
   logHeader: { flexDirection: 'row-reverse', justifyContent: 'space-between', marginBottom: 2 },
   logText: { fontSize: 12, fontFamily: Platform.OS === 'ios' ? 'Menlo' : 'monospace', textAlign: 'right' }
 });
-
