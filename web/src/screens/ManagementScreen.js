@@ -1,5 +1,4 @@
-
-import React, { useState, useCallback, useContext } from 'react';
+import React, { useState, useCallback, useContext, useMemo } from 'react';
 import {
   View,
   Text,
@@ -10,7 +9,8 @@ import {
   Alert,
   Dimensions,
   StatusBar,
-  ImageBackground
+  ImageBackground,
+  TextInput
 } from 'react-native';
 import { Image } from 'expo-image';
 import { Ionicons } from '@expo/vector-icons';
@@ -38,6 +38,9 @@ export default function ManagementScreen({ navigation }) {
   const { showToast } = useToast();
   const [novels, setNovels] = useState([]);
   const [loading, setLoading] = useState(true);
+  const [searchQuery, setSearchQuery] = useState('');
+  const [sortAscending, setSortAscending] = useState(true); // true = تصاعدي, false = تنازلي
+  const [sortBy, setSortBy] = useState('title'); // 'title' أو 'date'
 
   useFocusEffect(
     useCallback(() => {
@@ -48,7 +51,8 @@ export default function ManagementScreen({ navigation }) {
   const fetchMyNovels = async () => {
     setLoading(true);
     try {
-      const res = await api.get('/api/user/stats');
+      // جلب جميع الأعمال بوضع حد كبير (مثلاً 1000) لتغطية أكبر عدد
+      const res = await api.get('/api/user/stats?limit=1000');
       setNovels(res.data.myWorks || []);
     } catch (e) {
       console.error(e);
@@ -79,6 +83,41 @@ export default function ManagementScreen({ navigation }) {
         }
       ]
     );
+  };
+
+  // تصفية وترتيب الأعمال بناءً على البحث ومعيار الترتيب
+  const filteredAndSortedNovels = useMemo(() => {
+    // تصفية حسب البحث (في العنوان)
+    let filtered = novels.filter(item =>
+      item.title.toLowerCase().includes(searchQuery.toLowerCase())
+    );
+    
+    // ترتيب حسب المعيار المختار
+    filtered.sort((a, b) => {
+      if (sortBy === 'title') {
+        // ترتيب حسب العنوان أبجدياً
+        const comparison = a.title.localeCompare(b.title, 'ar');
+        return sortAscending ? comparison : -comparison;
+      } else {
+        // ترتيب حسب التاريخ (آخر تحديث أو إنشاء)
+        // نفترض وجود updatedAt أو createdAt
+        const dateA = a.updatedAt ? new Date(a.updatedAt) : (a.createdAt ? new Date(a.createdAt) : new Date(0));
+        const dateB = b.updatedAt ? new Date(b.updatedAt) : (b.createdAt ? new Date(b.createdAt) : new Date(0));
+        // التاريخ الأحدث يأتي أولاً إذا كان sortAscending = false (تنازلي)
+        if (sortAscending) {
+          return dateA - dateB; // أقدم أولاً
+        } else {
+          return dateB - dateA; // أحدث أولاً
+        }
+      }
+    });
+    
+    return filtered;
+  }, [novels, searchQuery, sortAscending, sortBy]);
+
+  // تبديل معيار الترتيب بين العنوان والتاريخ
+  const toggleSortBy = () => {
+    setSortBy(prev => prev === 'title' ? 'date' : 'title');
   };
 
   const renderItem = ({ item }) => (
@@ -157,19 +196,59 @@ export default function ManagementScreen({ navigation }) {
             </TouchableOpacity>
         </View>
 
+        {/* شريط البحث وزر الترتيب */}
+        <View style={styles.searchSection}>
+          <View style={styles.searchContainer}>
+            <Ionicons name="search" size={20} color="#888" style={styles.searchIcon} />
+            <TextInput
+              style={styles.searchInput}
+              placeholder="ابحث باسم الرواية..."
+              placeholderTextColor="#888"
+              value={searchQuery}
+              onChangeText={setSearchQuery}
+            />
+          </View>
+          
+          {/* زر تبديل معيار الترتيب (حسب العنوان أو التاريخ) */}
+          <TouchableOpacity 
+            style={styles.sortButton} 
+            onPress={toggleSortBy}
+          >
+            <Ionicons 
+              name={sortBy === 'title' ? "text" : "time-outline"} 
+              size={22} 
+              color="#fff" 
+            />
+          </TouchableOpacity>
+          
+          {/* زر اتجاه الترتيب */}
+          <TouchableOpacity 
+            style={styles.sortButton} 
+            onPress={() => setSortAscending(prev => !prev)}
+          >
+            <Ionicons 
+              name={sortAscending ? "arrow-up" : "arrow-down"} 
+              size={22} 
+              color="#fff" 
+            />
+          </TouchableOpacity>
+        </View>
+
         {loading ? (
             <View style={styles.centered}>
                 <ActivityIndicator size="large" color="#fff" />
             </View>
         ) : (
             <FlatList
-                data={novels}
+                data={filteredAndSortedNovels}
                 keyExtractor={item => item._id}
                 renderItem={renderItem}
                 contentContainerStyle={styles.listContent}
                 ListEmptyComponent={
                     <View style={styles.centered}>
-                        <Text style={styles.emptyText}>لم تقم بنشر أي أعمال بعد.</Text>
+                        <Text style={styles.emptyText}>
+                          {searchQuery ? 'لا توجد نتائج مطابقة للبحث' : 'لم تقم بنشر أي أعمال بعد.'}
+                        </Text>
                     </View>
                 }
             />
@@ -223,5 +302,46 @@ const styles = StyleSheet.create({
   btnText: { color: '#fff', fontSize: 12, fontWeight: '600' },
   
   centered: { flex: 1, justifyContent: 'center', alignItems: 'center', marginTop: 50 },
-  emptyText: { color: '#666', fontSize: 16 }
+  emptyText: { color: '#666', fontSize: 16 },
+
+  // أنماط جديدة للبحث والترتيب
+  searchSection: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingHorizontal: 15,
+    marginBottom: 10,
+  },
+  searchContainer: {
+    flex: 1,
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: 'rgba(255,255,255,0.1)',
+    borderRadius: 12,
+    borderWidth: 1,
+    borderColor: 'rgba(255,255,255,0.2)',
+    marginRight: 10,
+    paddingHorizontal: 10,
+    height: 44,
+  },
+  searchIcon: {
+    marginRight: 8,
+  },
+  searchInput: {
+    flex: 1,
+    color: '#fff',
+    fontSize: 16,
+    textAlign: 'right',
+    paddingVertical: 8,
+  },
+  sortButton: {
+    width: 44,
+    height: 44,
+    justifyContent: 'center',
+    alignItems: 'center',
+    backgroundColor: 'rgba(255,255,255,0.1)',
+    borderRadius: 12,
+    borderWidth: 1,
+    borderColor: 'rgba(255,255,255,0.2)',
+    marginLeft: 8,
+  },
 });
