@@ -1,6 +1,3 @@
-
-
-
 import React, { useState, useRef, useEffect, useMemo, useCallback, useContext } from 'react';
 import {
   View,
@@ -21,7 +18,6 @@ import {
   Keyboard,
   Switch
 } from 'react-native';
-import { WebView } from 'react-native-webview';
 import { Ionicons } from '@expo/vector-icons';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import AsyncStorage from '@react-native-async-storage/async-storage'; 
@@ -33,6 +29,7 @@ import { getOfflineChapterContent } from '../services/offlineStorage';
 
 const { width, height: SCREEN_HEIGHT } = Dimensions.get('window');
 const DRAWER_WIDTH = width * 0.85; 
+const BOTTOM_DRAWER_HEIGHT = SCREEN_HEIGHT * 0.5; // نصف ارتفاع الشاشة
 
 // --- CUSTOM SLIDER (No Native Dependencies) ---
 const CustomSlider = ({ value, onValueChange, minimumValue, maximumValue, step = 1, thumbColor='#fff', activeColor='#4a7cc7' }) => {
@@ -92,12 +89,12 @@ const CustomSlider = ({ value, onValueChange, minimumValue, maximumValue, step =
 };
 
 const FONT_OPTIONS = [
-  { id: 'Cairo', name: 'القاهرة', family: Platform.OS === 'ios' || Platform.OS === 'web' ? "'Cairo', sans-serif" : "Cairo", url: 'https://fonts.googleapis.com/css2?family=Cairo:wght@400;700&display=swap' },
-  { id: 'Amiri', name: 'أميري', family: Platform.OS === 'ios' || Platform.OS === 'web' ? "'Amiri', serif" : "Amiri", url: 'https://fonts.googleapis.com/css2?family=Amiri:wght@400;700&display=swap' },
-  { id: 'Geeza', name: 'جيزة', family: "'Geeza Pro', 'Segoe UI', Tahoma, sans-serif", url: '' },
-  { id: 'Noto', name: 'نوتو كوفي', family: Platform.OS === 'ios' || Platform.OS === 'web' ? "'Noto Kufi Arabic', sans-serif" : "NotoKufi", url: 'https://fonts.googleapis.com/css2?family=Noto+Kufi+Arabic:wght@400;700&display=swap' },
-  { id: 'Arial', name: 'آريال', family: "Arial, sans-serif", url: '' },
-  { id: 'Times', name: 'تايمز', family: "'Times New Roman', serif", url: '' },
+  { id: 'Cairo', name: 'القاهرة', family: Platform.OS === 'ios' || Platform.OS === 'web' ? 'Cairo' : 'Cairo' },
+  { id: 'Amiri', name: 'أميري', family: Platform.OS === 'ios' || Platform.OS === 'web' ? 'Amiri' : 'Amiri' },
+  { id: 'Geeza', name: 'جيزة', family: 'Geeza Pro' },
+  { id: 'Noto', name: 'نوتو كوفي', family: Platform.OS === 'ios' ? 'Noto Kufi Arabic' : 'NotoKufi' },
+  { id: 'Arial', name: 'آريال', family: 'Arial' },
+  { id: 'Times', name: 'تايمز', family: 'Times New Roman' },
 ];
 
 const ADVANCED_COLORS = [
@@ -140,6 +137,10 @@ const [fontFamily, setFontFamily] = useState(FONT_OPTIONS[0]);
 const [showMenu, setShowMenu] = useState(false);
 const [showSettings, setShowSettings] = useState(false);
 const [settingsView, setSettingsView] = useState('main'); 
+// new: text brightness
+const [textBrightness, setTextBrightness] = useState(1);
+// new: infinite scroll toggle
+const [infiniteScrollEnabled, setInfiniteScrollEnabled] = useState(false);
 
 // --- ADVANCED FORMATTING STATE ---
 const [enableDialogue, setEnableDialogue] = useState(false);
@@ -187,8 +188,22 @@ const [copyrightEveryX, setCopyrightEveryX] = useState('5');
 const [enableSeparator, setEnableSeparator] = useState(true);
 const [separatorText, setSeparatorText] = useState('________________________________________');
 
+// Chapters list state
+const [chaptersList, setChaptersList] = useState([]);
+const [loadingChapters, setLoadingChapters] = useState(false);
+
+// Infinite scroll state
+const [loadedChapters, setLoadedChapters] = useState([]); // array of { id, number, title, content, processedContent }
+const [isPreloading, setIsPreloading] = useState(false);
+const [maxLoadedChapters] = useState(5); // الحد الأقصى للفصول المحملة في نفس الوقت
+
+// Current reading chapter for progress tracking
+const [currentReadingChapter, setCurrentReadingChapter] = useState(null);
+const [progressUpdateTimer, setProgressUpdateTimer] = useState(null);
+
 const [drawerMode, setDrawerMode] = useState('none'); 
-const slideAnim = useRef(new Animated.Value(-DRAWER_WIDTH)).current; 
+// تعديل: تغيير القيمة الابتدائية للدرج الأيسر إلى SCREEN_HEIGHT ليظهر من الأسفل
+const slideAnim = useRef(new Animated.Value(SCREEN_HEIGHT)).current; 
 const slideAnimRight = useRef(new Animated.Value(DRAWER_WIDTH)).current; 
 const fadeAnim = useRef(new Animated.Value(0)).current; 
 const backdropAnim = useRef(new Animated.Value(0)).current;
@@ -196,9 +211,7 @@ const backdropAnim = useRef(new Animated.Value(0)).current;
 const [showComments, setShowComments] = useState(false);
 
 const insets = useSafeAreaInsets();
-const webViewRef = useRef(null);
 const flatListRef = useRef(null);
-const androidListRef = useRef(null);
 
 const novelId = novel._id || novel.id || novel.novelId;
 const isAdmin = userInfo?.role === 'admin';
@@ -213,7 +226,70 @@ useEffect(() => {
             fetchCopyrights();
         }
     }
+    return () => {
+        // عند الخروج من الشاشة، نقوم بتحديث التقدم إذا كان هناك فصل حالي
+        if (currentReadingChapter && !isOfflineMode) {
+            updateProgressOnServer(currentReadingChapter);
+        }
+        if (progressUpdateTimer) clearTimeout(progressUpdateTimer);
+    };
 }, []);
+
+// Fetch chapters if not provided
+useEffect(() => {
+    if (!isOfflineMode && (!novel.chapters || novel.chapters.length === 0) && (!availableChapters || availableChapters.length === 0)) {
+        fetchChapters();
+    } else {
+        // Build chaptersList from available data
+        if (availableChapters && availableChapters.length > 0) {
+            const list = availableChapters.map(num => ({
+                number: num,
+                title: `فصل ${num}`,
+                _id: num.toString()
+            }));
+            setChaptersList(list);
+        } else if (novel.chapters && novel.chapters.length > 0) {
+            setChaptersList(novel.chapters);
+        }
+    }
+}, [novel.chapters, availableChapters, isOfflineMode]);
+
+// Initialize loadedChapters when chapter loads and set current reading chapter
+useEffect(() => {
+    if (chapter) {
+        const processed = getProcessedContentForChapter(chapter);
+        const initialChapter = {
+            id: chapterId,
+            number: parseInt(chapterId),
+            title: chapter.title,
+            content: chapter.content,
+            processedContent: processed,
+            copyrightStart: chapter.copyrightStart,
+            copyrightEnd: chapter.copyrightEnd,
+            copyrightStyles: chapter.copyrightStyles
+        };
+        setLoadedChapters([initialChapter]);
+        setCurrentReadingChapter(initialChapter);
+        // تحديث التقدم للفصل الأول
+        if (!isOfflineMode) {
+            updateProgressOnServer(initialChapter);
+        }
+    }
+}, [chapter]);
+
+const fetchChapters = async () => {
+    setLoadingChapters(true);
+    try {
+        const res = await api.get(`/api/novels/${novelId}/chapters`);
+        if (res.data && Array.isArray(res.data)) {
+            setChaptersList(res.data);
+        }
+    } catch (error) {
+        console.log("Failed to fetch chapters list", error);
+    } finally {
+        setLoadingChapters(false);
+    }
+};
 
 const fetchAuthorData = async () => {
     if (novel.authorEmail) {
@@ -300,6 +376,11 @@ const loadSettings = async () => {
             if (parsed.markdownSize) setMarkdownSize(parsed.markdownSize);
             if (parsed.hideMarkdownMarks !== undefined) setHideMarkdownMarks(parsed.hideMarkdownMarks);
             if (parsed.selectedMarkdownStyle) setSelectedMarkdownStyle(parsed.selectedMarkdownStyle);
+
+            // load brightness
+            if (parsed.textBrightness) setTextBrightness(parsed.textBrightness);
+            // load infinite scroll
+            if (parsed.infiniteScrollEnabled !== undefined) setInfiniteScrollEnabled(parsed.infiniteScrollEnabled);
         }
     } catch (e) { console.error("Error loading settings", e); }
 };
@@ -537,9 +618,10 @@ const handleDeleteCleaner = async (item) => {
     ]);
 };
 
-const getProcessedContent = useMemo(() => {
-    if (!chapter || !chapter.content) return '';
-    let content = chapter.content;
+// Helper to get processed content for a specific chapter with current replacements
+const getProcessedContentForChapter = (chapterData) => {
+    if (!chapterData || !chapterData.content) return '';
+    let content = chapterData.content;
     activeReplacementsList.forEach(rep => {
         if (rep.original && rep.replacement) {
             const escapedOriginal = rep.original.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
@@ -548,19 +630,21 @@ const getProcessedContent = useMemo(() => {
         }
     });
     return content;
-}, [chapter, activeReplacementsList]);
+};
 
-const updateProgressOnServer = async (currentChapter) => {
-  if (!currentChapter || isOfflineMode) return;
+// تحديث التقدم على الخادم
+const updateProgressOnServer = async (chapterData) => {
+  if (!chapterData || isOfflineMode) return;
   try {
     await api.post('/api/novel/update', {
       novelId: novelId,
       title: novel.title,
       cover: novel.cover,
       author: novel.author || novel.translator,
-      lastChapterId: parseInt(chapterId),
-      lastChapterTitle: currentChapter.title
+      lastChapterId: chapterData.number,
+      lastChapterTitle: chapterData.title
     });
+    console.log(`Progress updated to chapter ${chapterData.number}`);
   } catch (error) {
     console.error("Failed to update progress on server");
   }
@@ -594,7 +678,6 @@ const fetchChapter = async () => {
         
         if (!isOfflineMode) {
             incrementView(novelId, chapterId);
-            updateProgressOnServer(chapterData);
             fetchCommentCount();
         }
     } catch (error) {
@@ -603,6 +686,191 @@ const fetchChapter = async () => {
     } finally {
         setLoading(false);
     }
+};
+
+// دالة لجلب فصل معين برقمه (للاستخدام في التحميل المسبق)
+const fetchChapterByNumber = async (chapterNum) => {
+    try {
+        if (isOfflineMode) {
+            const offlineData = await getOfflineChapterContent(novelId, chapterNum);
+            if (offlineData) return offlineData;
+            else return null;
+        } else {
+            const response = await api.get(`/api/novels/${novelId}/chapters/${chapterNum}`);
+            return response.data;
+        }
+    } catch (error) {
+        console.log(`Failed to fetch chapter ${chapterNum}`, error);
+        return null;
+    }
+};
+
+// دالة لتحميل الفصل التالي مسبقاً
+const preloadNextChapter = useCallback(async () => {
+    if (!infiniteScrollEnabled || isPreloading) return;
+    if (loadedChapters.length === 0) return;
+
+    const lastChapter = loadedChapters[loadedChapters.length - 1];
+    const nextNum = lastChapter.number + 1;
+
+    // تحقق من وجود الفصل التالي
+    if (availableChapters) {
+        if (!availableChapters.includes(nextNum)) return;
+    } else if (realTotalChapters > 0 && nextNum > realTotalChapters) {
+        return;
+    }
+
+    // تحقق من عدم تحميله مسبقاً
+    if (loadedChapters.some(ch => ch.number === nextNum)) return;
+
+    setIsPreloading(true);
+    const nextChapterData = await fetchChapterByNumber(nextNum);
+    setIsPreloading(false);
+
+    if (!nextChapterData) return;
+
+    const processed = getProcessedContentForChapter(nextChapterData);
+    const newChapter = {
+        id: nextNum.toString(),
+        number: nextNum,
+        title: nextChapterData.title,
+        content: nextChapterData.content,
+        processedContent: processed,
+        copyrightStart: nextChapterData.copyrightStart,
+        copyrightEnd: nextChapterData.copyrightEnd,
+        copyrightStyles: nextChapterData.copyrightStyles
+    };
+
+    setLoadedChapters(prev => {
+        let updated = [...prev, newChapter];
+        // إذا تجاوزنا الحد الأقصى، نحذف الأقدم
+        if (updated.length > maxLoadedChapters) {
+            updated = updated.slice(1); // نحذف أول عنصر
+        }
+        return updated;
+    });
+
+    // تحديث التقدم تلقائيًا للفصل الجديد إذا أصبح هو الفصل الحالي
+    // (سيتم التقاطه من خلال onViewableItemsChanged)
+}, [infiniteScrollEnabled, loadedChapters, availableChapters, realTotalChapters, isPreloading, activeReplacementsList]);
+
+// دالة لتنسيق النص مع التطبيقات (حواري، عريض) وإرجاع مصفوفة من العناصر
+const formatTextWithStyles = (text) => {
+    if (!text) return null;
+
+    // تقسيم النص إلى أسطر
+    const lines = text.split('\n').filter(line => line.trim() !== '');
+    
+    return lines.map((line, lineIndex) => {
+        let elements = [];
+        let remainingText = line;
+
+        // تطبيق تنسيق الحوار
+        if (enableDialogue) {
+            const quoteClass = hideQuotes ? 'quote-mark hidden' : 'quote-mark';
+            let quoteRegex;
+            if (selectedQuoteStyle === 'guillemets') {
+                quoteRegex = /(«)([\s\S]*?)(»)/g;
+            } else if (selectedQuoteStyle === 'curly') {
+                quoteRegex = /([“])([\s\S]*?)([”])/g; 
+            } else if (selectedQuoteStyle === 'straight') {
+                quoteRegex = /(")([\s\S]*?)(")/g;
+            } else if (selectedQuoteStyle === 'single') {
+                quoteRegex = /(['‘])([\s\S]*?)(['’])/g;
+            } else {
+                quoteRegex = /([“"«])([\s\S]*?)([”"»])/g;
+            }
+
+            // استبدال الاقتباسات بتنسيقات
+            const parts = [];
+            let lastIndex = 0;
+            let match;
+            while ((match = quoteRegex.exec(remainingText)) !== null) {
+                if (match.index > lastIndex) {
+                    parts.push({ type: 'text', content: remainingText.substring(lastIndex, match.index) });
+                }
+                parts.push({ 
+                    type: 'dialogue', 
+                    open: match[1], 
+                    content: match[2], 
+                    close: match[3] 
+                });
+                lastIndex = match.index + match[0].length;
+            }
+            if (lastIndex < remainingText.length) {
+                parts.push({ type: 'text', content: remainingText.substring(lastIndex) });
+            }
+
+            // إعادة بناء مع التنسيقات
+            const dialogueElements = parts.map((part, idx) => {
+                if (part.type === 'text') {
+                    return <Text key={idx} style={{ color: textColor }}>{part.content}</Text>;
+                } else {
+                    return (
+                        <Text key={idx} style={{ color: dialogueColor, fontSize: fontSize * (dialogueSize / 100) }}>
+                            {hideQuotes ? part.content : part.open + part.content + part.close}
+                        </Text>
+                    );
+                }
+            });
+            elements = dialogueElements;
+        } else {
+            elements = [<Text key={0} style={{ color: textColor }}>{remainingText}</Text>];
+        }
+
+        // تطبيق تنسيق العريض
+        if (enableMarkdown) {
+            // تحويل النص داخل العناصر الحالية
+            const newElements = [];
+            elements.forEach((el, idx) => {
+                if (el.props.children && typeof el.props.children === 'string') {
+                    const text = el.props.children;
+                    const markRegex = /\*\*(.*?)\*\*/g;
+                    const parts = [];
+                    let lastIndex = 0;
+                    let match;
+                    while ((match = markRegex.exec(text)) !== null) {
+                        if (match.index > lastIndex) {
+                            parts.push({ type: 'text', content: text.substring(lastIndex, match.index) });
+                        }
+                        parts.push({ type: 'bold', content: match[1] });
+                        lastIndex = match.index + match[0].length;
+                    }
+                    if (lastIndex < text.length) {
+                        parts.push({ type: 'text', content: text.substring(lastIndex) });
+                    }
+
+                    parts.forEach((part, pIdx) => {
+                        if (part.type === 'text') {
+                            newElements.push(<Text key={`${idx}-${pIdx}`} style={el.props.style}>{part.content}</Text>);
+                        } else {
+                            // إضافة علامات الاقتباس إذا كانت محددة
+                            let openQuote = '', closeQuote = '';
+                            if (selectedMarkdownStyle === 'guillemets') { openQuote = '«'; closeQuote = '»'; }
+                            else if (selectedMarkdownStyle === 'curly') { openQuote = '“'; closeQuote = '”'; }
+                            else if (selectedMarkdownStyle === 'straight') { openQuote = '"'; closeQuote = '"'; }
+                            else if (selectedMarkdownStyle === 'single') { openQuote = '‘'; closeQuote = '’'; }
+                            const boldContent = hideMarkdownMarks ? part.content : `**${part.content}**`;
+                            newElements.push(
+                                <Text key={`${idx}-${pIdx}`} style={[el.props.style, { fontWeight: 'bold', color: markdownColor, fontSize: fontSize * (markdownSize / 100) }]}>
+                                    {openQuote}{boldContent}{closeQuote}
+                                </Text>
+                            );
+                        }
+                    });
+                } else {
+                    newElements.push(el);
+                }
+            });
+            elements = newElements;
+        }
+
+        return (
+            <Text key={lineIndex} style={[styles.paragraph, { fontSize, color: textColor, fontFamily: fontFamily.family, lineHeight: fontSize * 1.8 }]}>
+                {elements}
+            </Text>
+        );
+    });
 };
 
 const fetchCommentCount = async () => {
@@ -634,26 +902,10 @@ const toggleMenu = useCallback(() => {
   });
 }, [drawerMode]);
 
-// 🔥🔥 FIX FOR WEB CLICK EVENT 🔥🔥
-useEffect(() => {
-    if (Platform.OS === 'web') {
-        const handleWebMessage = (event) => {
-            if (typeof event.data === 'string') {
-                 if (event.data === 'toggleMenu') toggleMenu();
-                 if (event.data === 'openComments') setShowComments(true);
-                 if (event.data === 'openProfile') {
-                     if (authorProfile) navigation.push('UserProfile', { userId: authorProfile._id });
-                 }
-            }
-        };
-        window.addEventListener('message', handleWebMessage);
-        return () => window.removeEventListener('message', handleWebMessage);
-    }
-}, [toggleMenu, authorProfile]);
-
 const openLeftDrawer = () => {
     setDrawerMode('chapters');
     Animated.parallel([
+        // تعديل: تحريك الدرج الأيسر من الأسفل إلى y=0
         Animated.timing(slideAnim, { toValue: 0, duration: 300, useNativeDriver: true }),
         Animated.timing(backdropAnim, { toValue: 1, duration: 300, useNativeDriver: true })
     ]).start();
@@ -675,7 +927,8 @@ const openRightDrawer = (mode) => {
 const closeDrawers = () => {
     Keyboard.dismiss();
     Animated.parallel([
-        Animated.timing(slideAnim, { toValue: -DRAWER_WIDTH, duration: 300, useNativeDriver: true }),
+        // تعديل: إعادة الدرج الأيسر إلى الأسفل (SCREEN_HEIGHT)
+        Animated.timing(slideAnim, { toValue: SCREEN_HEIGHT, duration: 300, useNativeDriver: true }),
         Animated.timing(slideAnimRight, { toValue: DRAWER_WIDTH, duration: 300, useNativeDriver: true }),
         Animated.timing(backdropAnim, { toValue: 0, duration: 300, useNativeDriver: true })
     ]).start(() => {
@@ -688,12 +941,12 @@ const closeDrawers = () => {
     });
 };
 
+// تعديل: إنشاء قائمة الفصول بناءً على chaptersList
 const sortedChapters = useMemo(() => {
-    if (!novel.chapters) return [];
-    let list = [...novel.chapters];
+    let list = [...chaptersList];
     if (!isAscending) list.reverse();
     return list;
-}, [novel.chapters, isAscending]);
+}, [chaptersList, isAscending]);
 
 const [isAscending, setIsAscending] = useState(true);
 const toggleSort = () => {
@@ -713,39 +966,60 @@ const navigateChapter = (targetId) => {
     }, 300);
 };
 
-// 🔥🔥 FIX: Navigation using available chapters list 🔥🔥
+// 🔥🔥 FIX: Navigation using available chapters list AND loadedChapters when infinite scroll is on 🔥🔥
 const navigateNextPrev = (offset) => {
-    if (availableChapters && availableChapters.length > 0) {
-        // Offline / Download Mode Logic
-        const currentNum = parseInt(chapterId);
-        // Find index in available list (assuming it is sorted, or we sort it)
-        const sortedAvailable = [...availableChapters].sort((a,b) => a - b);
-        const currentIndex = sortedAvailable.indexOf(currentNum);
-        
-        if (currentIndex === -1) return; // Should not happen
-
+    if (infiniteScrollEnabled && loadedChapters.length > 0) {
+        // في الوضع اللانهائي، نستخدم loadedChapters للتنقل
+        const currentIndex = loadedChapters.findIndex(ch => ch.number === currentReadingChapter?.number);
+        if (currentIndex === -1) return;
         const nextIndex = currentIndex + offset;
-        
-        if (nextIndex >= 0 && nextIndex < sortedAvailable.length) {
-            const nextChapId = sortedAvailable[nextIndex];
-            navigation.replace('Reader', { 
-                novel, 
-                chapterId: nextChapId, 
-                isOfflineMode,
-                availableChapters 
-            });
+        if (nextIndex >= 0 && nextIndex < loadedChapters.length) {
+            // نمرر إلى الفصل المطلوب باستخدام scrollToIndex
+            flatListRef.current?.scrollToIndex({ index: nextIndex, animated: true, viewPosition: 0 });
+            // تحديث currentReadingChapter (سيتم عن طريق onViewableItemsChanged)
         } else {
-             Alert.alert("تنبيه", offset > 0 ? "أنت في آخر فصل منزل." : "أنت في أول فصل منزل.");
+            // إذا كان خارج النطاق، نحاول تحميل المزيد إذا كان ذلك ممكناً
+            if (offset > 0 && nextIndex >= loadedChapters.length) {
+                // نحاول تحميل الفصل التالي يدوياً
+                preloadNextChapter();
+                Alert.alert("جاري تحميل الفصل التالي...");
+            } else if (offset < 0 && nextIndex < 0) {
+                Alert.alert("هذا هو أول فصل.");
+            }
         }
     } else {
-        // Online Logic (Standard)
-        const nextNum = parseInt(chapterId) + offset;
-        if (offset < 0 && nextNum < 1) return;
-        if (offset > 0 && realTotalChapters > 0 && nextNum > realTotalChapters) {
-            Alert.alert("تنبيه", "أنت في آخر فصل متاح.");
-            return;
+        // الوضع التقليدي
+        if (availableChapters && availableChapters.length > 0) {
+            // Offline / Download Mode Logic
+            const currentNum = parseInt(chapterId);
+            const sortedAvailable = [...availableChapters].sort((a,b) => a - b);
+            const currentIndex = sortedAvailable.indexOf(currentNum);
+            
+            if (currentIndex === -1) return;
+
+            const nextIndex = currentIndex + offset;
+            
+            if (nextIndex >= 0 && nextIndex < sortedAvailable.length) {
+                const nextChapId = sortedAvailable[nextIndex];
+                navigation.replace('Reader', { 
+                    novel, 
+                    chapterId: nextChapId, 
+                    isOfflineMode,
+                    availableChapters 
+                });
+            } else {
+                 Alert.alert("تنبيه", offset > 0 ? "أنت في آخر فصل منزل." : "أنت في أول فصل منزل.");
+            }
+        } else {
+            // Online Logic (Standard)
+            const nextNum = parseInt(chapterId) + offset;
+            if (offset < 0 && nextNum < 1) return;
+            if (offset > 0 && realTotalChapters > 0 && nextNum > realTotalChapters) {
+                Alert.alert("تنبيه", "أنت في آخر فصل متاح.");
+                return;
+            }
+            navigation.replace('Reader', { novel, chapterId: nextNum, isOfflineMode });
         }
-        navigation.replace('Reader', { novel, chapterId: nextNum, isOfflineMode });
     }
 };
 
@@ -769,303 +1043,93 @@ const handleFontChange = (font) => {
     saveSettings({ fontId: font.id });
 };
 
-const androidTextLines = useMemo(() => {
-  if (Platform.OS !== 'android') return [];
-  return getProcessedContent.split('\n').filter(line => line.trim() !== '');
-}, [getProcessedContent]);
+// تكوين رؤية العناصر لتحديد الفصل الحالي
+const viewabilityConfig = useRef({ itemVisiblePercentThreshold: 30 }).current;
 
-const generateHTML = () => {
-if (!chapter) return '';
-
-const startCopy = chapter.copyrightStart;
-const endCopy = chapter.copyrightEnd;
-const style = chapter.copyrightStyles || {};
-
-const copyrightCSS = `
-    color: ${style.color || '#888'};
-    opacity: ${style.opacity || 1};
-    text-align: ${style.alignment || 'center'};
-    font-weight: ${style.isBold ? 'bold' : 'normal'};
-    font-size: ${style.fontSize || 14}px; 
-    line-height: 1.5;
-    padding: 15px 0;
-    margin: 10px 0;
-    font-family: sans-serif; 
-`;
-
-const dividerCSS = `
-    .chapter-divider {
-        border: none;
-        height: 1px;
-        background-color: rgba(128,128,128,0.3);
-        margin: 10px 0 30px 0;
-        width: 100%;
-    }
-`;
-
-const dividerHTML = `<div class="chapter-divider"></div>`;
-
-const startHTML = startCopy ? `
-    <!-- START: COPYRIGHTS -->
-    <div class="app-copyright start" style="${copyrightCSS}">
-        ${startCopy}
-    </div>
-    ${dividerHTML}
-` : '';
-
-const endHTML = endCopy ? `
-    ${dividerHTML}
-    <!-- END: COPYRIGHTS -->
-    <div class="app-copyright end" style="${copyrightCSS}">
-        ${endCopy}
-    </div>
-` : '';
-
-const formattedContent = getProcessedContent
-    .split('\n')
-    .filter(line => line.trim() !== '')
-    .map(line => {
-        let processedLine = line;
-
-        if (enableMarkdown) {
-            const markClass = hideMarkdownMarks ? 'mark-hidden' : 'mark-visible';
-            let openQuote = '', closeQuote = '';
-            if (selectedMarkdownStyle === 'guillemets') { openQuote = '«'; closeQuote = '»'; }
-            else if (selectedMarkdownStyle === 'curly') { openQuote = '“'; closeQuote = '”'; }
-            else if (selectedMarkdownStyle === 'straight') { openQuote = '"'; closeQuote = '"'; }
-            else if (selectedMarkdownStyle === 'single') { openQuote = '‘'; closeQuote = '’'; }
-
-            processedLine = processedLine.replace(/\*\*(.*?)\*\*/g, (match, content) => {
-                const quoteStart = openQuote ? `<span class="cm-quote-style">${openQuote}</span>` : '';
-                const quoteEnd = closeQuote ? `<span class="cm-quote-style">${closeQuote}</span>` : '';
-
-                return `<span class="cm-markdown-bold"><span class="${markClass}">**</span>${quoteStart}${content}${quoteEnd}<span class="${markClass}">**</span></span>`;
-            });
-        }
-
-        if (enableDialogue) {
-            const quoteClass = hideQuotes ? 'quote-mark hidden' : 'quote-mark';
-            let quoteRegex;
-            if (selectedQuoteStyle === 'guillemets') {
-                quoteRegex = /(«)([\s\S]*?)(»)/g;
-            } else if (selectedQuoteStyle === 'curly') {
-                quoteRegex = /([“])([\s\S]*?)([”])/g; 
-            } else if (selectedQuoteStyle === 'straight') {
-                quoteRegex = /(")([\s\S]*?)(")/g;
-            } else if (selectedQuoteStyle === 'single') {
-                quoteRegex = /(['‘])([\s\S]*?)(['’])/g;
-            } else {
-                quoteRegex = /([“"«])([\s\S]*?)([”"»])/g;
-            }
-
-            processedLine = processedLine.replace(quoteRegex, (match, open, content, close) => {
-                return `<span class="cm-dialogue-text"><span class="${quoteClass}">${open}</span>${content}<span class="${quoteClass}">${close}</span></span>`;
-            });
-        }
-
-        return `<p>${processedLine}</p>`;
-    })
-    .join('');
-
-const fontImports = FONT_OPTIONS.map(f => f.url ? `@import url('${f.url}');` : '').join('\n');
-
-const authorName = authorProfile?.name || novel.author || 'Zeus';
-const authorAvatar = authorProfile?.picture || 'https://via.placeholder.com/150';
-const authorBanner = authorProfile?.banner || null;
-const bannerStyle = authorBanner ? `background-image: url('${authorBanner}');` : 'background-color: #000;';
-
-const publisherBanner = `
-<div class="author-section-wrapper">
-    <div class="section-title">الناشر</div>
-    <div class="author-card" id="authorCard">
-        <div class="author-banner" style="${bannerStyle}"></div>
-        <div class="author-overlay"></div>
-        <div class="author-content">
-            <div class="author-avatar-wrapper">
-                <img src="${authorAvatar}" class="author-avatar-img" />
-            </div>
-            <div class="author-name">${authorName}</div>
-        </div>
-    </div>
-</div>
-`;
-
-const commentsButton = !isOfflineMode ? `
-<div class="comments-btn-container">
-    <button class="comments-btn" id="commentsBtn">
-        <span class="icon">💬</span>
-        <span>عرض التعليقات (${commentCount})</span>
-    </button>
-</div>
-` : '';
-
-return `
-  <!DOCTYPE html>
-  <html lang="ar" dir="rtl">
-  <head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
-    <style>
-      ${fontImports}
-      * { -webkit-tap-highlight-color: transparent; -webkit-touch-callout: none; box-sizing: border-box; }
-      body, html { 
-        margin: 0; padding: 0; background-color: ${bgColor}; color: ${textColor};
-        font-family: ${fontFamily.family}; line-height: 1.8; 
-        -webkit-overflow-scrolling: touch; 
-        overflow-x: hidden;
-      }
-      .container { padding: 25px 20px 120px 20px; width: 100%; max-width: 800px; margin: 0 auto; }
-      
-      .title { 
-        font-size: ${fontSize + 8}px; font-weight: bold; margin-bottom: 20px; 
-        color: ${bgColor === '#fff' ? '#000' : '#fff'}; 
-        padding-bottom: 10px; font-family: ${fontFamily.family};
-        text-align: right; 
-      }
-
-      ${dividerCSS}
-
-      .content-area { font-size: ${fontSize}px; text-align: justify; word-wrap: break-word; }
-      p { margin-bottom: 1.5em; }
-      
-      .cm-dialogue-text { 
-          color: ${enableDialogue ? dialogueColor : 'inherit'}; 
-          font-size: ${dialogueSize}%;
-          font-weight: bold;
-          transition: color 0.3s ease, font-size 0.3s ease;
-      }
-      .cm-markdown-bold { 
-          font-weight: bold;
-          color: ${enableMarkdown ? markdownColor : 'inherit'}; 
-          font-size: ${markdownSize}%;
-          transition: color 0.3s ease, font-size 0.3s ease;
-      }
-      .cm-quote-style { opacity: 1; }
-      .quote-mark { opacity: 1; transition: opacity 0.3s ease; }
-      .quote-mark.hidden { opacity: 0; font-size: 0; }
-      .mark-visible { opacity: 1; }
-      .mark-hidden { opacity: 0; font-size: 0; }
-
-      body { user-select: none; -webkit-user-select: none; }
-      .author-section-wrapper { margin-top: 50px; margin-bottom: 20px; border-top: 1px solid #222; padding-top: 20px; }
-      .section-title { color: ${bgColor === '#fff' ? '#000' : '#fff'}; font-size: 18px; font-weight: bold; margin-bottom: 12px; text-align: right; }
-      .author-card { border-radius: 16px; overflow: hidden; margin-top: 10px; border: 1px solid #222; position: relative; height: 140px; width: 100%; cursor: pointer; }
-      .author-banner { position: absolute; width: 100%; height: 100%; background-size: cover; background-position: center; }
-      .author-overlay { position: absolute; inset: 0; background: linear-gradient(to bottom, rgba(0,0,0,0.2), rgba(0,0,0,0.8)); z-index: 1; }
-      .author-content { position: absolute; inset: 0; display: flex; flex-direction: column; align-items: center; justify-content: center; z-index: 2; width: 100%; }
-      .author-avatar-wrapper { width: 76px; height: 76px; border-radius: 38px; border: 3px solid #fff; background-color: #333; margin-bottom: 8px; overflow: hidden; }
-      .author-avatar-img { width: 100%; height: 100%; object-fit: cover; }
-      .author-name { color: #fff; font-size: 20px; font-weight: bold; text-transform: uppercase; text-shadow: 0 1px 6px rgba(0, 0, 0, 0.9); text-align: center; }
-      .comments-btn-container { margin-bottom: 40px; padding: 0 5px; }
-      .comments-btn { width: 100%; background-color: ${bgColor === '#fff' ? '#f0f0f0' : '#1a1a1a'}; border: 1px solid ${bgColor === '#fff' ? '#ddd' : '#333'}; color: ${bgColor === '#fff' ? '#333' : '#fff'}; padding: 15px; border-radius: 8px; font-size: 16px; font-weight: bold; cursor: pointer; display: flex; align-items: center; justify-content: center; gap: 10px; box-shadow: 0 4px 6px rgba(0,0,0,0.1); }
-    </style>
-  </head>
-  <body>
-    <div class="container" id="clickable-area">
-      <div class="title">${chapter.title}</div>
-      ${dividerHTML}
-      
-      ${startHTML}
-      
-      <div class="content-area">${formattedContent}</div>
-      
-      ${endHTML}
-
-      ${publisherBanner}
-      ${commentsButton}
-    </div>
-    <script>
-      function sendMessage(msg) {
-          if (window.ReactNativeWebView) { window.ReactNativeWebView.postMessage(msg); } 
-          else if (window.parent) { window.parent.postMessage(msg, '*'); }
-      }
-      document.addEventListener('click', function(e) {
-        try {
-            if (e.target.closest('#commentsBtn')) { e.stopPropagation(); sendMessage('openComments'); return; }
-            if (e.target.closest('#authorCard')) { e.stopPropagation(); sendMessage('openProfile'); return; }
-            var selection = window.getSelection();
-            if (selection && selection.toString().length > 0) return;
-            sendMessage('toggleMenu');
-        } catch(err) {}
-      });
-    </script>
-  </body>
-  </html>
-`;
-};
-
-const onMessage = (event) => {
-    if (event && event.nativeEvent && event.nativeEvent.data) {
-        const msg = event.nativeEvent.data;
-        if (msg === 'toggleMenu') {
-            toggleMenu();
-        } else if (msg === 'openComments') {
-            setShowComments(true);
-        } else if (msg === 'openProfile') {
-            if (authorProfile && !isOfflineMode) {
-                navigation.push('UserProfile', { userId: authorProfile._id });
-            }
+const onViewableItemsChanged = useRef(({ viewableItems }) => {
+    if (viewableItems.length > 0 && infiniteScrollEnabled) {
+        // نأخذ العنصر الأكثر ظهوراً (عادةً الأول)
+        const mostVisible = viewableItems.reduce((prev, current) => {
+            return (current.percentVisible > prev.percentVisible) ? current : prev;
+        });
+        const visibleChapter = mostVisible.item;
+        if (visibleChapter && visibleChapter.number !== currentReadingChapter?.number) {
+            setCurrentReadingChapter(visibleChapter);
+            // نستخدم debounce لتجنب الاستدعاءات المتكررة أثناء التمرير السريع
+            if (progressUpdateTimer) clearTimeout(progressUpdateTimer);
+            const timer = setTimeout(() => {
+                updateProgressOnServer(visibleChapter);
+                // تحديث chapterId في الـ header (اختياري)
+                // يمكننا تحديث الـ header subtitle ليعكس الفصل الحالي
+            }, 2000); // 2 ثانية بعد التوقف
+            setProgressUpdateTimer(timer);
         }
     }
-};
+}).current;
 
-const renderFolderItem = ({ item }) => (
-    <TouchableOpacity style={styles.drawerItem} onPress={() => openFolder(item.id)}>
-        <View style={{flexDirection: 'row', alignItems: 'center'}}>
-            <Ionicons name="folder" size={20} color="#4a7cc7" style={{marginLeft: 10}} />
-            <Text style={styles.drawerItemTitle}>{item.name}</Text>
-        </View>
-        <View style={{flexDirection: 'row', alignItems: 'center'}}>
-            <Text style={{color: '#666', fontSize: 12, marginRight: 10}}>{item.replacements.length} كلمة</Text>
-            <TouchableOpacity onPress={() => deleteFolder(item.id)} style={{padding: 5}}>
-                <Ionicons name="trash-outline" size={18} color="#ff4444" />
-            </TouchableOpacity>
-        </View>
-    </TouchableOpacity>
-);
+// مكون عرض الفصل الواحد
+const ChapterItem = ({ chapter, index }) => {
+    const formattedContent = useMemo(() => {
+        return formatTextWithStyles(chapter.processedContent);
+    }, [chapter.processedContent, fontSize, textColor, fontFamily, enableDialogue, dialogueColor, dialogueSize, hideQuotes, selectedQuoteStyle, enableMarkdown, markdownColor, markdownSize, hideMarkdownMarks, selectedMarkdownStyle]);
 
-const renderReplacementItem = ({ item, index }) => (
-    <TouchableOpacity style={styles.replacementItem} onPress={() => handleEditReplacement(item, index)}>
-        <View style={styles.replacementInfo}>
-            <Text style={[styles.replacementText, {color: '#888', fontSize: 12, marginBottom: 2}]}>{item.original}</Text>
-            <Ionicons name="arrow-down" size={12} color="#4a7cc7" style={{marginVertical: 2}} />
-            <Text style={[styles.replacementText, {fontWeight: 'bold', color: '#fff'}]}>{item.replacement}</Text>
-        </View>
-        <View style={styles.replacementActions}>
-            <TouchableOpacity onPress={() => handleDeleteReplacement(index)} style={styles.actionBtn}>
-                <Ionicons name="trash-outline" size={18} color="#ff4444" />
-            </TouchableOpacity>
-        </View>
-    </TouchableOpacity>
-);
+    const copyrightStyles = chapter.copyrightStyles || {};
 
-const renderCleanerItem = ({ item, index }) => (
-    <View style={styles.replacementItem}>
-        <View style={styles.replacementInfo}>
-            <Text style={[styles.replacementText, {color: '#ccc', textAlign: 'right'}]} numberOfLines={2}>{item}</Text>
-        </View>
-        <View style={styles.replacementActions}>
-            <TouchableOpacity onPress={() => handleEditCleaner(item, index)} style={styles.actionBtn}>
-                <Ionicons name="create-outline" size={18} color="#4a7cc7" />
-            </TouchableOpacity>
-            <TouchableOpacity onPress={() => handleDeleteCleaner(item)} style={styles.actionBtn}>
-                <Ionicons name="trash-outline" size={18} color="#ff4444" />
-            </TouchableOpacity>
-        </View>
-    </View>
-);
-
-const renderChapterItem = ({ item }) => {
     return (
-        <TouchableOpacity 
-            style={[styles.drawerItem, item.number == chapterId && styles.drawerItemActive]} 
-            onPress={() => navigateChapter(item.number)}
-        >
-            <Text style={[styles.drawerItemTitle, item.number == chapterId && styles.drawerItemTextActive]}>
-                {item.title || `فصل ${item.number}`}
+        <View style={styles.chapterContainer}>
+            <Text style={[styles.chapterTitle, { fontSize: fontSize + 8, color: bgColor === '#fff' ? '#000' : '#fff', fontFamily: fontFamily.family }]}>
+                {chapter.title}
             </Text>
-            <Text style={styles.drawerItemSubtitle}>{item.number}</Text>
-        </TouchableOpacity>
+            {chapter.copyrightStart ? (
+                <View style={[styles.copyrightBox, { alignItems: copyrightStyles.alignment || 'center' }]}>
+                    <Text style={[styles.copyrightText, {
+                        color: copyrightStyles.color || '#888',
+                        opacity: copyrightStyles.opacity || 1,
+                        fontWeight: copyrightStyles.isBold ? 'bold' : 'normal',
+                        fontSize: copyrightStyles.fontSize || 14,
+                        textAlign: copyrightStyles.alignment || 'center'
+                    }]}>
+                        {chapter.copyrightStart}
+                    </Text>
+                </View>
+            ) : null}
+            <View style={styles.content}>
+                {formattedContent}
+            </View>
+            {chapter.copyrightEnd ? (
+                <View style={[styles.copyrightBox, { alignItems: copyrightStyles.alignment || 'center' }]}>
+                    <Text style={[styles.copyrightText, {
+                        color: copyrightStyles.color || '#888',
+                        opacity: copyrightStyles.opacity || 1,
+                        fontWeight: copyrightStyles.isBold ? 'bold' : 'normal',
+                        fontSize: copyrightStyles.fontSize || 14,
+                        textAlign: copyrightStyles.alignment || 'center'
+                    }]}>
+                        {chapter.copyrightEnd}
+                    </Text>
+                </View>
+            ) : null}
+            {index < loadedChapters.length - 1 && <View style={styles.chapterSeparator} />}
+        </View>
+    );
+};
+
+// مكون تذييل القائمة (يحتوي على بطاقة المؤلف وزر التعليقات)
+const ListFooter = () => {
+    if (!authorProfile && isOfflineMode) return null;
+    return (
+        <View style={styles.footerContainer}>
+            {authorProfile && (
+                <TouchableOpacity onPress={() => !isOfflineMode && navigation.push('UserProfile', { userId: authorProfile._id })} style={styles.authorCard}>
+                    <Text style={styles.authorName}>الناشر: {authorProfile.name}</Text>
+                </TouchableOpacity>
+            )}
+            {!isOfflineMode && (
+                <TouchableOpacity onPress={() => setShowComments(true)} style={[styles.commentBtn, { borderColor: textColor }]}>
+                    <Text style={{ color: textColor }}>عرض التعليقات ({commentCount})</Text>
+                </TouchableOpacity>
+            )}
+        </View>
     );
 };
 
@@ -1080,9 +1144,10 @@ return (
 
 // Helper to determine subtitle text (Online vs Offline)
 const getHeaderSubtitle = () => {
-    if (availableChapters) {
-        // Offline / Downloaded context
-        // Find position of current chapter in the downloaded list
+    if (infiniteScrollEnabled && currentReadingChapter) {
+        // في الوضع اللانهائي، نعرض الفصل الحالي
+        return `الفصل ${currentReadingChapter.number}`;
+    } else if (availableChapters) {
         const sorted = [...availableChapters].sort((a,b) => a - b);
         const index = sorted.indexOf(parseInt(chapterId));
         return `الفصل ${index + 1} من ${sorted.length}`;
@@ -1090,56 +1155,6 @@ const getHeaderSubtitle = () => {
         return `الفصل ${chapterId} من ${realTotalChapters > 0 ? realTotalChapters : '؟'}`;
     }
 };
-
-const renderAndroidContent = () => (
-  <View style={{ flex: 1 }}>
-    <FlatList
-      ref={androidListRef}
-      data={androidTextLines}
-      keyExtractor={(_, index) => index.toString()}
-      contentContainerStyle={{ paddingHorizontal: 20, paddingTop: insets.top + 60, paddingBottom: 150 }}
-      showsVerticalScrollIndicator={false}
-      removeClippedSubviews={true}
-      ListHeaderComponent={() => (
-        <TouchableOpacity activeOpacity={1} onPress={toggleMenu}>
-          <Text style={[styles.androidTitle, { color: textColor, fontSize: fontSize + 8, fontFamily: fontFamily.id === 'Cairo' || fontFamily.id === 'Amiri' ? fontFamily.id : undefined }]}>
-            {chapter ? chapter.title : ''}
-          </Text>
-        </TouchableOpacity>
-      )}
-      renderItem={({ item }) => (
-        <TouchableOpacity activeOpacity={1} onPress={toggleMenu}>
-          <Text style={{
-            fontSize: fontSize,
-            color: textColor,
-            fontFamily: fontFamily.id === 'Cairo' || fontFamily.id === 'Amiri' ? fontFamily.id : undefined,
-            lineHeight: fontSize * 1.8,
-            textAlign: 'right',
-            marginBottom: 20,
-            writingDirection: 'rtl'
-          }}>
-            {item}
-          </Text>
-        </TouchableOpacity>
-      )}
-      ListFooterComponent={() => (
-        <View style={{ marginTop: 30 }}>
-          {authorProfile && (
-            <TouchableOpacity onPress={() => !isOfflineMode && navigation.push('UserProfile', { userId: authorProfile._id })} style={styles.androidAuthorCard}>
-              <Text style={{ color: '#fff', fontWeight: 'bold' }}>الناشر: {authorProfile.name}</Text>
-            </TouchableOpacity>
-          )}
-          {!isOfflineMode && (
-              <TouchableOpacity onPress={() => setShowComments(true)} style={[styles.androidCommentBtn, { borderColor: textColor }]}>
-                <Text style={{ color: textColor }}>عرض التعليقات ({commentCount})</Text>
-              </TouchableOpacity>
-          )}
-          <TouchableOpacity style={{height: 100}} onPress={toggleMenu} />
-        </View>
-      )}
-    />
-  </View>
-);
 
 return (
 <View style={[styles.container, { backgroundColor: bgColor }]}>
@@ -1156,25 +1171,36 @@ return (
     </View>
   </Animated.View>
 
-  {/* المنصات */}
-  {Platform.OS === 'web' ? (
-      <iframe srcDoc={generateHTML()} style={{ flex: 1, border: 'none', backgroundColor: bgColor, width: '100%', height: '100%' }} />
-  ) : Platform.OS === 'ios' ? (
-      <WebView 
-        ref={webViewRef} 
-        originWhitelist={['*']} 
-        source={{ html: generateHTML() }} 
-        style={{ backgroundColor: bgColor, flex: 1 }} 
-        onMessage={onMessage} 
-        scrollEnabled={true}
-        bounces={true}
-        decelerationRate="normal"
-        alwaysBounceVertical={true}
+  {/* Touchable area for toggling menu - يلف FlatList بالكامل */}
+  <TouchableWithoutFeedback onPress={toggleMenu}>
+    <View style={{ flex: 1 }}>
+      <FlatList
+        ref={flatListRef}
+        data={infiniteScrollEnabled ? loadedChapters : (chapter ? [{
+            id: chapterId,
+            number: parseInt(chapterId),
+            title: chapter.title,
+            content: chapter.content,
+            processedContent: getProcessedContentForChapter(chapter),
+            copyrightStart: chapter.copyrightStart,
+            copyrightEnd: chapter.copyrightEnd,
+            copyrightStyles: chapter.copyrightStyles
+        }] : [])}
+        keyExtractor={(item) => item.id}
+        renderItem={({ item, index }) => <ChapterItem chapter={item} index={index} />}
+        contentContainerStyle={[styles.listContent, { paddingTop: insets.top + 70, paddingBottom: 120 }]}
         showsVerticalScrollIndicator={false}
+        onEndReached={infiniteScrollEnabled ? preloadNextChapter : null}
+        onEndReachedThreshold={0.5}
+        ListFooterComponent={ListFooter}
+        removeClippedSubviews={true}
+        maxToRenderPerBatch={3}
+        windowSize={5}
+        viewabilityConfig={viewabilityConfig}
+        onViewableItemsChanged={infiniteScrollEnabled ? onViewableItemsChanged : null}
       />
-  ) : (
-      renderAndroidContent()
-  )}
+    </View>
+  </TouchableWithoutFeedback>
 
   {/* Bottom Bar */}
   <Animated.View style={[styles.bottomBar, { opacity: fadeAnim, paddingBottom: Math.max(insets.bottom, 20), transform: [{ translateY: fadeAnim.interpolate({ inputRange: [0, 1], outputRange: [100, 0] }) }] }]} pointerEvents={showMenu ? 'auto' : 'none'}>
@@ -1222,14 +1248,28 @@ return (
       <View style={[StyleSheet.absoluteFill, { zIndex: 1000 }]}>
           <TouchableWithoutFeedback onPress={closeDrawers}><Animated.View style={[styles.drawerBackdrop, { opacity: backdropAnim }]} /></TouchableWithoutFeedback>
           
-          {/* Left Drawer (Chapters) */}
-          <Animated.View style={[styles.drawerContent, { left: 0, borderRightWidth: 1, borderRightColor: '#333', paddingTop: insets.top + 20, paddingBottom: insets.bottom + 20, transform: [{ translateX: slideAnim }] }]}>
+          {/* Left Drawer (Chapters) - تعديل: يظهر من الأسفل ويصل إلى منتصف الشاشة */}
+          <Animated.View style={[styles.drawerContent, { 
+              left: 0, 
+              right: 0, 
+              bottom: 0, 
+              height: BOTTOM_DRAWER_HEIGHT, 
+              borderTopWidth: 1, 
+              borderTopColor: '#333', 
+              paddingTop: 20, 
+              paddingBottom: insets.bottom + 20, 
+              transform: [{ translateY: slideAnim }] 
+          }]}>
               <View style={styles.drawerHeader}>
                   <TouchableOpacity onPress={closeDrawers}><Ionicons name="close" size={24} color="#888" /></TouchableOpacity>
                   <Text style={styles.drawerTitle}>الفصول ({sortedChapters.length})</Text>
                   <TouchableOpacity onPress={toggleSort} style={styles.sortButton}><Ionicons name={isAscending ? "arrow-down" : "arrow-up"} size={18} color="#4a7cc7" /></TouchableOpacity>
               </View>
-              <FlatList ref={flatListRef} data={sortedChapters} keyExtractor={(item) => item._id || item.number.toString()} renderItem={renderChapterItem} initialNumToRender={20} contentContainerStyle={styles.drawerList} showsVerticalScrollIndicator={true} indicatorStyle="white" />
+              {loadingChapters ? (
+                  <View style={{flex:1, justifyContent:'center', alignItems:'center'}}><ActivityIndicator color="#4a7cc7" /></View>
+              ) : (
+                  <FlatList data={sortedChapters} keyExtractor={(item) => item._id || item.number.toString()} renderItem={renderChapterItem} initialNumToRender={20} contentContainerStyle={styles.drawerList} showsVerticalScrollIndicator={true} indicatorStyle="white" />
+              )}
           </Animated.View>
 
           {/* Right Drawer (Replacements OR Cleaner OR Copyright) */}
@@ -1615,6 +1655,39 @@ return (
                         </View>
                     </View>
 
+                    {/* Text Brightness Control */}
+                    <View style={styles.designCard}>
+                        <Text style={styles.cardSectionTitle}>سطوع النص</Text>
+                        <View style={styles.sliderRow}>
+                            <Text style={styles.sliderLabel}>{Math.round(textBrightness * 100)}%</Text>
+                            <CustomSlider
+                                minimumValue={0.3}
+                                maximumValue={1.5}
+                                step={0.05}
+                                value={textBrightness}
+                                onValueChange={(val) => { setTextBrightness(val); saveSettings({ textBrightness: val }); }}
+                                activeColor="#4a7cc7"
+                            />
+                            <Text style={styles.sliderTitle}>التعتيم</Text>
+                        </View>
+                    </View>
+
+                    {/* Infinite Scroll Toggle */}
+                    <View style={styles.designCard}>
+                        <View style={styles.toggleRow}>
+                            <Switch 
+                                value={infiniteScrollEnabled} 
+                                onValueChange={(val) => { setInfiniteScrollEnabled(val); saveSettings({ infiniteScrollEnabled: val }); }}
+                                trackColor={{ false: "#333", true: "#4a7cc7" }}
+                                thumbColor={"#fff"}
+                            />
+                            <Text style={[styles.toggleLabel, {fontWeight: 'bold'}]}>تفعيل النزول اللانهائي للفصول</Text>
+                        </View>
+                        <Text style={{color:'#888', fontSize: 10, textAlign: 'right', marginTop: 5}}>
+                            سيتم تحميل الفصول تلقائياً أثناء التمرير.
+                        </Text>
+                    </View>
+
                     {/* DIALOGUE FORMATTING CARD */}
                     <View style={[styles.advancedCard, !enableDialogue && {opacity: 0.8}]}>
                         <View style={styles.advancedHeader}>
@@ -1763,6 +1836,67 @@ return (
 );
 }
 
+// دوال عرض عناصر القائمة (لعدم تكرارها)
+const renderFolderItem = ({ item }) => (
+    <TouchableOpacity style={styles.drawerItem} onPress={() => openFolder(item.id)}>
+        <View style={{flexDirection: 'row', alignItems: 'center'}}>
+            <Ionicons name="folder" size={20} color="#4a7cc7" style={{marginLeft: 10}} />
+            <Text style={styles.drawerItemTitle}>{item.name}</Text>
+        </View>
+        <View style={{flexDirection: 'row', alignItems: 'center'}}>
+            <Text style={{color: '#666', fontSize: 12, marginRight: 10}}>{item.replacements.length} كلمة</Text>
+            <TouchableOpacity onPress={() => deleteFolder(item.id)} style={{padding: 5}}>
+                <Ionicons name="trash-outline" size={18} color="#ff4444" />
+            </TouchableOpacity>
+        </View>
+    </TouchableOpacity>
+);
+
+const renderReplacementItem = ({ item, index }) => (
+    <TouchableOpacity style={styles.replacementItem} onPress={() => handleEditReplacement(item, index)}>
+        <View style={styles.replacementInfo}>
+            <Text style={[styles.replacementText, {color: '#888', fontSize: 12, marginBottom: 2}]}>{item.original}</Text>
+            <Ionicons name="arrow-down" size={12} color="#4a7cc7" style={{marginVertical: 2}} />
+            <Text style={[styles.replacementText, {fontWeight: 'bold', color: '#fff'}]}>{item.replacement}</Text>
+        </View>
+        <View style={styles.replacementActions}>
+            <TouchableOpacity onPress={() => handleDeleteReplacement(index)} style={styles.actionBtn}>
+                <Ionicons name="trash-outline" size={18} color="#ff4444" />
+            </TouchableOpacity>
+        </View>
+    </TouchableOpacity>
+);
+
+const renderCleanerItem = ({ item, index }) => (
+    <View style={styles.replacementItem}>
+        <View style={styles.replacementInfo}>
+            <Text style={[styles.replacementText, {color: '#ccc', textAlign: 'right'}]} numberOfLines={2}>{item}</Text>
+        </View>
+        <View style={styles.replacementActions}>
+            <TouchableOpacity onPress={() => handleEditCleaner(item, index)} style={styles.actionBtn}>
+                <Ionicons name="create-outline" size={18} color="#4a7cc7" />
+            </TouchableOpacity>
+            <TouchableOpacity onPress={() => handleDeleteCleaner(item)} style={styles.actionBtn}>
+                <Ionicons name="trash-outline" size={18} color="#ff4444" />
+            </TouchableOpacity>
+        </View>
+    </View>
+);
+
+const renderChapterItem = ({ item }) => {
+    return (
+        <TouchableOpacity 
+            style={[styles.drawerItem, item.number == chapterId && styles.drawerItemActive]} 
+            onPress={() => navigateChapter(item.number)}
+        >
+            <Text style={[styles.drawerItemTitle, item.number == chapterId && styles.drawerItemTextActive]}>
+                {item.title || `فصل ${item.number}`}
+            </Text>
+            <Text style={styles.drawerItemSubtitle}>{item.number}</Text>
+        </TouchableOpacity>
+    );
+};
+
 const styles = StyleSheet.create({
 container: { flex: 1 },
 loadingContainer: { flex: 1, justifyContent: 'center', alignItems: 'center' },
@@ -1809,7 +1943,7 @@ themeContainer: { alignItems: 'center', gap: 8 },
 themeOption: { width: 50, height: 50, borderRadius: 25 },
 themeName: { color: '#888', fontSize: 12 },
 drawerBackdrop: { ...StyleSheet.absoluteFillObject, backgroundColor: 'rgba(0,0,0,0.7)' },
-drawerContent: { position: 'absolute', top: 0, bottom: 0, width: DRAWER_WIDTH, backgroundColor: '#161616', shadowColor: '#000', shadowOffset: { width: 5, height: 0 }, shadowOpacity: 0.5, shadowRadius: 10, elevation: 20 },
+drawerContent: { position: 'absolute', backgroundColor: '#161616', shadowColor: '#000', shadowOffset: { width: 5, height: 0 }, shadowOpacity: 0.5, shadowRadius: 10, elevation: 20 },
 drawerHeader: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', paddingHorizontal: 15, paddingBottom: 15, borderBottomWidth: 1, borderBottomColor: '#2a2a2a', marginBottom: 5 },
 drawerTitle: { color: '#fff', fontSize: 16, fontWeight: 'bold' },
 sortButton: { padding: 5, backgroundColor: 'rgba(74, 124, 199, 0.1)', borderRadius: 8 },
@@ -1820,14 +1954,10 @@ drawerItemTitle: { color: '#ccc', fontSize: 14, textAlign: 'right', marginBottom
 drawerItemTextActive: { color: '#4a7cc7', fontWeight: 'bold' },
 drawerItemSubtitle: { color: '#666', fontSize: 11, textAlign: 'right' },
 commentsModalContainer: { flex: 1, justifyContent: 'flex-end' },
-modalBackdrop: { ...StyleSheet.absoluteFillObject, backgroundColor: 'rgba(0,0,0,0.6)' },
 commentsSheet: { height: '80%', backgroundColor: '#0a0a0a', borderTopLeftRadius: 20, borderTopRightRadius: 20, overflow: 'hidden' },
 commentsHandle: { width: 40, height: 5, backgroundColor: '#333', borderRadius: 3, alignSelf: 'center', marginTop: 10 },
 commentsHeader: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', padding: 15, borderBottomWidth: 1, borderColor: '#222' },
 commentsTitle: { color: '#fff', fontSize: 16, fontWeight: 'bold' },
-androidTitle: { fontWeight: 'bold', textAlign: 'center', marginBottom: 30, borderBottomWidth: 1, borderBottomColor: 'rgba(128,128,128,0.3)', paddingBottom: 15 },
-androidAuthorCard: { backgroundColor: '#111', padding: 20, borderRadius: 12, marginBottom: 20, alignItems: 'center', borderWidth: 1, borderColor: '#333' },
-androidCommentBtn: { padding: 15, borderRadius: 8, borderWidth: 1, alignItems: 'center', marginBottom: 50 },
 inputContainer: { padding: 15, borderBottomWidth: 1, borderBottomColor: '#333', marginBottom: 10 },
 inputRow: { flexDirection: 'column', gap: 10, marginBottom: 15 },
 textInput: { backgroundColor: '#222', color: '#fff', borderRadius: 8, padding: 12, textAlign: 'right', fontSize: 14, borderWidth: 1, borderColor: '#333' },
@@ -1887,4 +2017,18 @@ freqBtn: { paddingHorizontal: 12, paddingVertical: 6, borderRadius: 20, backgrou
 freqBtnActive: { backgroundColor: '#4a7cc7', borderColor: '#4a7cc7' },
 freqBtnText: { color: '#888', fontSize: 12, fontWeight: 'bold' },
 scrollSettingsContainer: { paddingBottom: 50 },
+
+// أنماط جديدة للفصول
+listContent: { flexGrow: 1 },
+chapterContainer: { marginBottom: 20 },
+chapterTitle: { fontWeight: 'bold', textAlign: 'center', marginBottom: 20, borderBottomWidth: 1, borderBottomColor: 'rgba(128,128,128,0.3)', paddingBottom: 10 },
+chapterSeparator: { height: 2, backgroundColor: '#4a7cc7', width: '50%', alignSelf: 'center', marginVertical: 30 },
+paragraph: { marginBottom: 20, textAlign: 'right' },
+copyrightBox: { marginVertical: 10 },
+copyrightText: { lineHeight: 24 },
+content: {  },
+footerContainer: { marginTop: 30, marginBottom: 50, alignItems: 'center' },
+authorCard: { backgroundColor: '#111', padding: 20, borderRadius: 12, marginBottom: 20, borderWidth: 1, borderColor: '#333', width: '100%' },
+authorName: { color: '#fff', fontWeight: 'bold', textAlign: 'center' },
+commentBtn: { padding: 15, borderRadius: 8, borderWidth: 1, width: '100%', alignItems: 'center' },
 });
