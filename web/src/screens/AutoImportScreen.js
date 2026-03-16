@@ -490,3 +490,4 @@ const styles = StyleSheet.create({
   logHeader: { flexDirection: 'row-reverse', justifyContent: 'space-between', marginBottom: 2 },
   logText: { fontSize: 12, fontFamily: Platform.OS === 'ios' ? 'Menlo' : 'monospace', textAlign: 'right' }
 });
+
