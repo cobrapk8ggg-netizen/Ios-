@@ -25,7 +25,7 @@ import api from '../services/api';
 import CustomAlert from '../components/CustomAlert'; // 🔥 Imported CustomAlert
 
 const { width, height } = Dimensions.get('window');
-const BACKEND_URL = 'https://c-production-f88c.up.railway.app'; 
+const BACKEND_URL = 'https://c-production-fba1.up.railway.app'; 
 
 export default function LoginScreen({ navigation }) {
   const { login } = useContext(AuthContext);
