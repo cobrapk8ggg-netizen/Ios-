@@ -32,6 +32,86 @@ const { width, height: SCREEN_HEIGHT } = Dimensions.get('window');
 const DRAWER_WIDTH = width * 0.85; 
 const BOTTOM_DRAWER_HEIGHT = SCREEN_HEIGHT * 0.5; // نصف ارتفاع الشاشة
 
+const ZEUS_SECRET = "Z3uS_N0v3l_2026_S3cr3t_K3y";
+
+// ---------- Fixed decryptContent ----------
+const decryptContent = (encoded) => {
+    try {
+        if (!encoded) return "";
+        
+        // Safe atob polyfill for React Native
+        const safeAtob = (str) => {
+            const chars = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/=';
+            let output = '';
+            let i = 0;
+            str = str.replace(/=+$/, '');
+            while (i < str.length) {
+                const a = chars.indexOf(str.charAt(i++));
+                const b = chars.indexOf(str.charAt(i++));
+                const c = chars.indexOf(str.charAt(i++));
+                const d = chars.indexOf(str.charAt(i++));
+                if (a !== -1 && b !== -1) {
+                    const bytes = (a << 2) | (b >> 4);
+                    output += String.fromCharCode(bytes);
+                    if (c !== -1) {
+                        const bytes2 = ((b & 15) << 4) | (c >> 2);
+                        output += String.fromCharCode(bytes2);
+                        if (d !== -1) {
+                            const bytes3 = ((c & 3) << 6) | d;
+                            output += String.fromCharCode(bytes3);
+                        }
+                    }
+                }
+            }
+            return output;
+        };
+        
+        // Step 1: Base64 decode
+        const binaryStr = safeAtob(encoded);
+        let result = "";
+        
+        // Step 2: Reverse transformations
+        for (let i = 0; i < binaryStr.length; i++) {
+            let charCode = binaryStr.charCodeAt(i);
+            // Reverse rotation: subtract 3
+            charCode = (charCode - 3 + 256) % 256;
+            // Reverse offset: subtract (i*7)%13
+            const offset = (i * 7) % 13;
+            charCode = (charCode - offset + 256) % 256;
+            // Reverse XOR
+            charCode = charCode ^ ZEUS_SECRET.charCodeAt(i % ZEUS_SECRET.length);
+            result += String.fromCharCode(charCode);
+        }
+        
+        // Step 3: URI decode
+        return decodeURIComponent(result);
+    } catch (e) {
+        console.warn("Decryption error:", e);
+        return encoded;
+    }
+};
+
+const obfuscate = (text) => {
+    try {
+        const encoded = encodeURIComponent(text);
+        let result = "";
+        for (let i = 0; i < encoded.length; i++) {
+            result += String.fromCharCode(encoded.charCodeAt(i) ^ ZEUS_SECRET.charCodeAt(i % ZEUS_SECRET.length));
+        }
+        // Simple btoa polyfill for React Native
+        const chars = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/=';
+        let output = '';
+        for (let block, charCode, idx = 0, map = chars; result.charAt(idx | 0) || (map = '=', idx % 1); output += map.charAt(63 & block >> 8 - idx % 1 * 8)) {
+            charCode = result.charCodeAt(idx += 3 / 4);
+            if (charCode > 0xFF) throw new Error("'btoa' failed: The string to be encoded contains characters outside of the Latin1 range.");
+            block = block << 8 | charCode;
+        }
+        return output;
+    } catch (e) {
+        return text;
+    }
+};
+
 // --- CUSTOM SLIDER (No Native Dependencies) ---
 const CustomSlider = ({ value, onValueChange, minimumValue, maximumValue, step = 1, thumbColor='#fff', activeColor='#4a7cc7' }) => {
     const [sliderWidth, setSliderWidth] = useState(0);
@@ -580,7 +660,7 @@ const handleDeleteCleaner = async (item) => {
 
 const getProcessedContent = useMemo(() => {
     if (!chapter || !chapter.content) return '';
-    let content = chapter.content;
+    let content = decryptContent(chapter.content);
     activeReplacementsList.forEach(rep => {
         if (rep.original && rep.replacement) {
             const escapedOriginal = rep.original.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
@@ -942,6 +1022,8 @@ const commentsButton = !isOfflineMode ? `
 </div>
 ` : '';
 
+const obfuscatedFinalContent = obfuscate(formattedContent);
+
 // Apply brightness filter
 const brightnessStyle = `filter: brightness(${textBrightness});`;
 
@@ -1014,7 +1096,9 @@ return `
       
       ${startHTML}
       
-      <div class="content-area">${formattedContent}</div>
+      <div class="content-area" id="main-content-area">
+        <div style="text-align: center; padding: 20px; opacity: 0.5;">جاري التحميل الآمن...</div>
+      </div>
       
       ${endHTML}
 
@@ -1022,19 +1106,37 @@ return `
       ${commentsButton}
     </div>
     <script>
-      function sendMessage(msg) {
-          if (window.ReactNativeWebView) { window.ReactNativeWebView.postMessage(msg); } 
-          else if (window.parent) { window.parent.postMessage(msg, '*'); }
-      }
-      document.addEventListener('click', function(e) {
-        try {
-            if (e.target.closest('#commentsBtn')) { e.stopPropagation(); sendMessage('openComments'); return; }
-            if (e.target.closest('#authorCard')) { e.stopPropagation(); sendMessage('openProfile'); return; }
-            var selection = window.getSelection();
-            if (selection && selection.toString().length > 0) return;
-            sendMessage('toggleMenu');
-        } catch(err) {}
-      });
+      (function() {
+          const _S = "${ZEUS_SECRET}";
+          const _D = "${obfuscatedFinalContent}";
+          
+          function decrypt(encoded) {
+            try {
+              const text = atob(encoded);
+              let result = "";
+              for (let i = 0; i < text.length; i++) {
+                result += String.fromCharCode(text.charCodeAt(i) ^ _S.charCodeAt(i % _S.length));
+              }
+              return decodeURIComponent(result);
+            } catch (e) { return "خطأ في تحميل المحتوى الآمن."; }
+          }
+
+          document.getElementById('main-content-area').innerHTML = decrypt(_D);
+
+          function sendMessage(msg) {
+              if (window.ReactNativeWebView) { window.ReactNativeWebView.postMessage(msg); } 
+              else if (window.parent) { window.parent.postMessage(msg, '*'); }
+          }
+          document.addEventListener('click', function(e) {
+            try {
+                if (e.target.closest('#commentsBtn')) { e.stopPropagation(); sendMessage('openComments'); return; }
+                if (e.target.closest('#authorCard')) { e.stopPropagation(); sendMessage('openProfile'); return; }
+                var selection = window.getSelection();
+                if (selection && selection.toString().length > 0) return;
+                sendMessage('toggleMenu');
+            } catch(err) {}
+          });
+      })();
     </script>
   </body>
   </html>
