@@ -39,6 +39,14 @@ export default function TranslatorSettingsScreen({ navigation }) {
       fetchSettings();
   }, []);
 
+  const isDeepSeekProvider = (provider) => {
+      const providerId = (provider.providerId || '').toLowerCase();
+      const name = (provider.name || '').toLowerCase();
+      const selectedModel = (provider.selectedModel || '').toLowerCase();
+      const hasDeepSeekModel = provider.models && provider.models.some(m => (m.modelId || '').toLowerCase().includes('deepseek'));
+      return providerId === 'deepseek' || name.includes('deepseek') || selectedModel.includes('deepseek') || hasDeepSeekModel;
+  };
+
   const fetchSettings = async () => {
       try {
           const res = await api.get('/api/translator/settings');
@@ -55,7 +63,10 @@ export default function TranslatorSettingsScreen({ navigation }) {
                   models: p.models && p.models.length ? p.models : [{ modelId: 'gemini-2.5-flash', modelName: 'Gemini 2.5 Flash' }],
                   apiKeys: p.apiKeys || [],
                   selectedModel: p.selectedModel || (p.models && p.models[0]?.modelId) || 'gemini-2.5-flash',
-                  priority: p.priority !== undefined ? p.priority : idx
+                  priority: p.priority !== undefined ? p.priority : idx,
+                  thinkingEnabled: Boolean(p.thinkingEnabled),
+                  searchEnabled: p.searchEnabled !== false,
+                  deepSeekModelType: p.deepSeekModelType === 'expert' ? 'expert' : 'instant'
               }));
               setProviders(normalized);
           }
@@ -79,7 +90,10 @@ export default function TranslatorSettingsScreen({ navigation }) {
           ],
           apiKeys: [],
           selectedModel: 'gemini-2.5-flash',
-          priority: newPriority
+          priority: newPriority,
+          thinkingEnabled: false,
+          searchEnabled: true,
+          deepSeekModelType: 'instant'
       };
       setProviders([...providers, newProvider]);
       setExpandedProvider(newProvider.providerId);
@@ -162,7 +176,10 @@ export default function TranslatorSettingsScreen({ navigation }) {
               models: p.models.filter(m => m.modelId.trim() !== '').map(m => ({ modelId: m.modelId.trim(), modelName: m.modelName.trim() || m.modelId.trim() })),
               apiKeys: p.apiKeys,
               selectedModel: p.selectedModel,
-              priority: p.priority
+              priority: p.priority,
+              thinkingEnabled: Boolean(p.thinkingEnabled),
+              searchEnabled: p.searchEnabled !== false,
+              deepSeekModelType: p.deepSeekModelType === 'expert' ? 'expert' : 'instant'
           }));
 
           await api.post('/api/translator/settings', {
@@ -216,6 +233,7 @@ export default function TranslatorSettingsScreen({ navigation }) {
             {/* عرض المزوّدين */}
             {providers.sort((a, b) => a.priority - b.priority).map((provider, index) => {
                 const isExpanded = expandedProvider === provider.providerId;
+                const isDeepSeek = isDeepSeekProvider(provider);
                 return (
                     <GlassContainer key={provider.providerId} style={styles.providerCard}>
                         {/* رأس البطاقة */}
@@ -229,6 +247,9 @@ export default function TranslatorSettingsScreen({ navigation }) {
                                 <View style={{flex: 1, alignItems: 'flex-end'}}>
                                     <Text style={styles.providerName}>{provider.name}</Text>
                                     <Text style={styles.providerModel}>النموذج: {provider.selectedModel}</Text>
+                                    {isDeepSeek && (
+                                        <Text style={styles.providerModel}>وضع DeepSeek: {provider.deepSeekModelType === 'expert' ? 'Expert' : 'Instant'}</Text>
+                                    )}
                                 </View>
                             </View>
                             <View style={{flexDirection: 'row-reverse', gap: 8}}>
@@ -279,6 +300,42 @@ export default function TranslatorSettingsScreen({ navigation }) {
                                     autoCapitalize="none"
                                     autoCorrect={false}
                                 />
+
+                                {isDeepSeek && (
+                                    <View style={styles.deepSeekOptionsBox}>
+                                        <Text style={styles.miniLabel}>وضع DeepSeek</Text>
+                                        <Text style={styles.hintSmall}>Instant سريع وافتراضي، وExpert يرسل الطلبات مع model_type: expert.</Text>
+                                        <View style={styles.segmentRow}>
+                                            <TouchableOpacity
+                                                style={[styles.segmentButton, provider.deepSeekModelType !== 'expert' && styles.segmentButtonActive]}
+                                                onPress={() => updateProviderField(provider.providerId, 'deepSeekModelType', 'instant')}
+                                            >
+                                                <Text style={[styles.segmentButtonText, provider.deepSeekModelType !== 'expert' && styles.segmentButtonTextActive]}>Instant / سريع</Text>
+                                            </TouchableOpacity>
+                                            <TouchableOpacity
+                                                style={[styles.segmentButton, provider.deepSeekModelType === 'expert' && styles.segmentButtonActive]}
+                                                onPress={() => updateProviderField(provider.providerId, 'deepSeekModelType', 'expert')}
+                                            >
+                                                <Text style={[styles.segmentButtonText, provider.deepSeekModelType === 'expert' && styles.segmentButtonTextActive]}>Expert / خبير</Text>
+                                            </TouchableOpacity>
+                                        </View>
+                                        <Text style={styles.miniLabel}>خيارات DeepSeek</Text>
+                                        <View style={styles.segmentRow}>
+                                            <TouchableOpacity
+                                                style={[styles.segmentButton, provider.searchEnabled !== false && styles.segmentButtonActive]}
+                                                onPress={() => updateProviderField(provider.providerId, 'searchEnabled', provider.searchEnabled === false)}
+                                            >
+                                                <Text style={[styles.segmentButtonText, provider.searchEnabled !== false && styles.segmentButtonTextActive]}>البحث {provider.searchEnabled !== false ? 'مفعل' : 'مغلق'}</Text>
+                                            </TouchableOpacity>
+                                            <TouchableOpacity
+                                                style={[styles.segmentButton, provider.thinkingEnabled && styles.segmentButtonActive]}
+                                                onPress={() => updateProviderField(provider.providerId, 'thinkingEnabled', !provider.thinkingEnabled)}
+                                            >
+                                                <Text style={[styles.segmentButtonText, provider.thinkingEnabled && styles.segmentButtonTextActive]}>التفكير {provider.thinkingEnabled ? 'مفعل' : 'مغلق'}</Text>
+                                            </TouchableOpacity>
+                                        </View>
+                                    </View>
+                                )}
 
                                 {/* النماذج */}
                                 <Text style={styles.miniLabel}>النماذج</Text>
@@ -431,6 +488,20 @@ const styles = StyleSheet.create({
       marginTop: 10, paddingVertical: 8
   },
   addModelText: { color: '#ccc', fontSize: 14 },
+  deepSeekOptionsBox: {
+      marginTop: 12, padding: 12, borderRadius: 12,
+      borderWidth: 1, borderColor: 'rgba(96, 165, 250, 0.35)',
+      backgroundColor: 'rgba(37, 99, 235, 0.08)'
+  },
+  segmentRow: { flexDirection: 'row-reverse', gap: 8, marginTop: 6, marginBottom: 8 },
+  segmentButton: {
+      flex: 1, paddingVertical: 10, paddingHorizontal: 8, borderRadius: 10,
+      alignItems: 'center', borderWidth: 1, borderColor: '#333',
+      backgroundColor: 'rgba(0,0,0,0.35)'
+  },
+  segmentButtonActive: { backgroundColor: 'rgba(255,255,255,0.16)', borderColor: '#fff' },
+  segmentButtonText: { color: '#aaa', fontSize: 12, fontWeight: '600' },
+  segmentButtonTextActive: { color: '#fff' },
 
   input: { backgroundColor: 'rgba(0,0,0,0.5)', color: '#ccc', borderRadius: 10, padding: 15, minHeight: 120, borderWidth: 1, borderColor: '#333', textAlign: 'left' },
 
